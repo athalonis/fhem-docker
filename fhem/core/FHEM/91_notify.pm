@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 91_notify.pm 19374 2019-05-11 17:48:03Z rudolfkoenig $
+# $Id: 91_notify.pm 21427 2020-03-15 10:10:32Z rudolfkoenig $
 package main;
 
 use strict;
@@ -124,6 +124,7 @@ notify_Exec($$)
       $ntfy->{TRIGGERTIME} = $now;
       $ntfy->{STATE} =
         AttrVal($ln,'showtime',1) ? $dev->{NTFY_TRIGGERTIME} : 'active';
+      last if($dat);
     }
   }
   
@@ -747,6 +748,12 @@ END
     <li><a href="#disable">disable</a></li>
     <li><a href="#disabledForIntervals">disabledForIntervals</a></li>
 
+    <a name="disabledAfterTrigger"></a>
+    <li>disabledAfterTrigger &lt;sekunden&gt;<br>
+      deaktiviert die Ausf&uuml;hrung f&uuml;r &lt;sekunden&gt; nach dem
+      das notify ausgel&ouml;st wurde.
+    </li>
+
     <a name="addStateEvent"></a>
     <li>addStateEvent<br>
       Das mit dem state Reading verkn&uuml;pfte Event ist speziell, da das
@@ -778,8 +785,8 @@ END
     <li>ignoreRegexp regexp<br>
         Es ist nicht immer einfach ein Regexp zu bauen, was etwas _nicht_
         matcht. Dieses Attribu hilft in diesen F&auml;llen: das Event wird
-        ignoriert, falls den angegebenen Regexp. Syntax ist gleich wie in der
-        Definition.
+        ignoriert, falls den angegebenen Regexp matcht. Syntax ist gleich wie
+        in der Definition.
         </li>
 
     <a name="readLog"></a>

@@ -1,5 +1,5 @@
 #############################################
-# $Id: 98_DOIFtools.pm 18333 2019-01-19 09:13:38Z Ellert $
+# $Id: 98_DOIFtools.pm 21361 2020-03-06 05:16:58Z Ellert $
 # 
 # This file is part of fhem.
 # 
@@ -224,9 +224,6 @@ function doiftoolsOptChanged() {
       inpt.setSelectionRange(7,17+N);
     }
 }
-function doiftoolsReplaceBR() {
-        $("textarea#console").html($("textarea#console").html().replace(/<br(.*)?>/g,""));
-}
 
 function delbutton() {
     if ($('#doiftoolstype').attr('embefore') == 1) {
@@ -245,7 +242,6 @@ function delbutton() {
   //execute
   $( window ).on( "load", delbutton );
   $('#console').on('select', doiftoolsCopyToClipboard);
-  $('#console').on('mouseover',doiftoolsReplaceBR);
 </script>
 EOF
 my $DOIFtoolsJSfuncStart = <<'EOF';
@@ -255,7 +251,8 @@ function doiftoolsRemoveLookUp () {
     $('#addLookUp').dialog( "close" );
 }
 function doiftoolsAddLookUp () {
-    var tn = $(this).text();
+    var tnx = (""+this).split("=");
+    var tn = tnx[1];
     var target = this;
     var txt = "Internals<table class='block wide internals' style='font-size:12px'>";
     FW_cmd(FW_root+"?cmd=jsonlist2 "+tn+"&XHR=1", function(data){

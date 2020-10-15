@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 10_MAX.pm 16847 2018-06-10 18:42:19Z rudolfkoenig $
+# $Id: 10_MAX.pm 21446 2020-03-18 18:07:50Z Wzut $
 # Written by Matthias Gehre, M.Gehre@gmx.de, 2012-2013
 #
 package main;
@@ -8,6 +8,8 @@ use strict;
 use warnings;
 use MIME::Base64;
 use MaxCommon;
+use AttrTemplate;
+
 
 sub MAX_Define($$);
 sub MAX_Undef($$);
@@ -74,7 +76,7 @@ MAX_Initialize($)
   $hash->{ParseFn}   = "MAX_Parse";
   $hash->{SetFn}     = "MAX_Set";
   $hash->{AttrList}  = "IODev do_not_notify:1,0 ignore:0,1 dummy:0,1 " .
-                       "showtime:1,0 keepAuto:0,1 scanTemp:0,1 ".
+                       "showtime:1,0 keepAuto:0,1 scanTemp:0,1 model:HeatingThermostat,HeatingThermostatPlus,WallMountedThermostat,ShutterContact,PushButton ".
                        $readingFnAttributes;
   $hash->{DbLog_splitFn} = "MAX_DbLog_splitFn";
   return undef;
@@ -88,16 +90,21 @@ MAX_Define($$)
   my @a = split("[ \t][ \t]*", $def);
   my $name = $hash->{NAME};
   return "name \"$name\" is reserved for internal use" if($name eq "fakeWallThermostat" or $name eq "fakeShutterContact");
-  return "wrong syntax: define <name> MAX type addr"
-        if(int(@a)!=4 || $a[3] !~ m/^[A-F0-9]{6}$/i);
+  return 'wrong syntax: define <name> MAX type address'   if(int(@a)!=4 || $a[3] !~ m/^[a-fA-F0-9]{6}$/i);
+  return 'incorrect address 000000' if ($a[3] eq '000000');
+
 
   my $type = $a[2];
   my $addr = lc($a[3]); #all addr should be lowercase
-  if(exists($modules{MAX}{defptr}{$addr})) {
-    my $msg = "MAX_Define: Device with addr $addr is already defined";
-    Log3 $hash, 1, $msg;
+ 
+  if(exists($modules{MAX}{defptr}{$addr}) && $modules{MAX}{defptr}{$addr}->{NAME} ne $name)
+  {
+    my $msg = 'MAX_Define, a Device with addr '.$addr.' is already defined ('.$modules{MAX}{defptr}{$addr}->{NAME}.')';
+    Log3 $hash, 2, $msg;
     return $msg;
   }
+
+
   if($type eq "Cube") {
     my $msg = "MAX_Define: Device type 'Cube' is deprecated. All properties have been moved to the MAXLAN device.";
     Log3 $hash, 1, $msg;
@@ -105,12 +112,16 @@ MAX_Define($$)
   }
   Log3 $hash, 5, "Max_define $type with addr $addr ";
   $hash->{type} = $type;
+  $hash->{devtype}  = MAX_TypeToTypeId($type);
   $hash->{addr} = $addr;
   $modules{MAX}{defptr}{$addr} = $hash;
 
   $hash->{internals}{interfaces} = $interfaces{$type};
 
   AssignIoPort($hash);
+
+  CommandAttr(undef,$name.' model '.$type); # Forum Stats werten nur attr model aus
+
   return undef;
 }
 
@@ -220,7 +231,10 @@ MAX_ParseWeekProfile(@) {
       $hours[$j] = ($time_prof[$j] / 60 % 24);
       $minutes[$j] = ($time_prof[$j]%60);
       #if 00:00 reached, last point in profile was found
-      last if(int($hours[$j])==0 && int($minutes[$j])==0 );
+      if (int($hours[$j]) == 0 && int($minutes[$j]) == 0) {
+        $hours[$j] = 24;
+        last;
+      }
     }
     my $time_prof_str = "00:00";
     my $temp_prof_str;
@@ -251,6 +265,10 @@ MAX_Set($@)
 {
   my ($hash, $devname, @a) = @_;
   my ($setting, @args) = @a;
+  my $ret = '';
+  my $devtype = int($hash->{devtype});
+
+  return undef if (IsDummy($devname) || IsIgnored($devname) || !$devtype || ($setting eq 'valveposition') || ($setting eq 'temperature'));
 
   return "Invalid IODev" if(MAX_CheckIODev($hash));
 
@@ -482,7 +500,9 @@ MAX_Set($@)
   } elsif($setting eq "wakeUp") {
     return MAX_WakeUp($hash);
 
-  } elsif($setting eq "weekProfile" and $hash->{type} =~ /.*Thermostat.*/) {
+  } 
+   elsif($setting eq "weekProfile" and $hash->{type} =~ /.*Thermostat.*/) 
+  {
     return "Invalid arguments.  You must specify at least one: <weekDay> <temp[,hh:mm]>\nExample: Mon 10,06:00,17,09:00" if((@args%2 == 1)||(@args == 0));
 
     #Send wakeUp, so we can send the weekprofile pakets without preamble
@@ -502,12 +522,12 @@ MAX_Set($@)
         }
         my ($hour, $min);
         if($j + 1 == @controlpoints) {
-          $hour = 0; $min = 0;
+          $hour = 24; $min = 0;
         } else {
           ($hour, $min) = ($controlpoints[$j+1] =~ /^(\d{1,2}):(\d{1,2})$/);
         }
         my $temperature = $controlpoints[$j];
-        return "Invalid time: $controlpoints[$j+1]" if(!defined($hour) || !defined($min) || $hour > 23 || $min > 59);
+        return "Invalid time: $controlpoints[$j+1]" if(!defined($hour) || !defined($min) || $hour > 24 || $min > 59 || ($hour == 24 && $min > 0));
         return "Invalid temperature (Must be one of: off|on|5|5.5|6|6.5..30)" if(!validTemperature($temperature));
         $temperature = MAX_ParseTemperature($temperature); #replace "on" and "off" by their values
         $newWeekprofilePart .= sprintf("%04x", (int($temperature*2) << 9) | int(($hour * 60 + $min)/5));
@@ -528,9 +548,11 @@ MAX_Set($@)
     }
     Log3 $hash, 5, "New weekProfile: " . MAX_ReadingsVal($hash, ".weekProfile");
 
-  }else{
+  }
+  else
+  {
     my $templist = join(",",map { MAX_SerializeTemperature($_/2) }  (9..61));
-    my $ret = "Unknown argument $setting, choose one of wakeUp factoryReset groupid";
+    $ret = "Unknown argument $setting, choose one of wakeUp factoryReset groupid";
 
     my $assoclist;
     #Build list of devices which this device can be associated to
@@ -563,7 +585,8 @@ MAX_Set($@)
 
     my $templistOffset = join(",",map { MAX_SerializeTemperature(($_-7)/2) }  (0..14));
     my $boostDurVal = join(",", values(%boost_durations));
-    if($hash->{type} =~ /HeatingThermostat.*/) {
+    if($hash->{type} =~ /HeatingThermostat.*/) 
+    {
       my $shash;
       my $wallthermo = 0;
       # check if Wallthermo is in same group
@@ -572,18 +595,25 @@ MAX_Set($@)
         $wallthermo = 1 if(defined $shash->{type} && $shash->{type} eq "WallMountedThermostat" && (MAX_ReadingsVal($shash,"groupid") eq MAX_ReadingsVal($hash,"groupid")));
       }
 
-      if ($wallthermo eq 1) {
-        return "$ret associate:$assoclist deassociate:$assoclist desiredTemperature:eco,comfort,boost,auto,$templist measurementOffset:$templistOffset windowOpenDuration boostDuration:$boostDurVal boostValveposition decalcification maxValveSetting valveOffset weekProfile";
-      } else {
-        return "$ret associate:$assoclist deassociate:$assoclist desiredTemperature:eco,comfort,boost,auto,$templist ecoTemperature:$templist comfortTemperature:$templist measurementOffset:$templistOffset maximumTemperature:$templist minimumTemperature:$templist windowOpenTemperature:$templist windowOpenDuration boostDuration:$boostDurVal boostValveposition decalcification maxValveSetting valveOffset weekProfile";
-      }
-    } elsif($hash->{type} eq "WallMountedThermostat") {
-      return "$ret associate:$assoclist deassociate:$assoclist displayActualTemperature:0,1 desiredTemperature:eco,comfort,boost,auto,$templist ecoTemperature:$templist comfortTemperature:$templist maximumTemperature:$templist minimumTemperature:$templist measurementOffset:$templistOffset windowOpenTemperature:$templist boostDuration:$boostDurVal boostValveposition ";
-    } elsif($hash->{type} eq "ShutterContact") {
-      return "$ret associate:$assoclist deassociate:$assoclist";
-    } else {
-      return $ret;
-    }
+     if ($wallthermo eq 1) 
+     {
+        $ret .= " associate:$assoclist deassociate:$assoclist desiredTemperature:eco,comfort,boost,auto,$templist measurementOffset:$templistOffset windowOpenDuration boostDuration:$boostDurVal boostValveposition decalcification maxValveSetting valveOffset weekProfile";
+     } 
+      else 
+     {
+        $ret .= " associate:$assoclist deassociate:$assoclist desiredTemperature:eco,comfort,boost,auto,$templist ecoTemperature:$templist comfortTemperature:$templist measurementOffset:$templistOffset maximumTemperature:$templist minimumTemperature:$templist windowOpenTemperature:$templist windowOpenDuration boostDuration:$boostDurVal boostValveposition decalcification maxValveSetting valveOffset weekProfile";
+     }
+    } 
+     elsif($hash->{type} eq "WallMountedThermostat") 
+    {
+      $ret .= " associate:$assoclist deassociate:$assoclist displayActualTemperature:0,1 desiredTemperature:eco,comfort,boost,auto,$templist ecoTemperature:$templist comfortTemperature:$templist maximumTemperature:$templist minimumTemperature:$templist measurementOffset:$templistOffset windowOpenTemperature:$templist boostDuration:$boostDurVal boostValveposition ";
+    } 
+     elsif($hash->{type} eq "ShutterContact") 
+    {
+      $ret .= " associate:$assoclist deassociate:$assoclist";
+    } 
+
+   return AttrTemplate_Set ($hash, $ret, $devname, $setting, @args);
   }
 }
 
@@ -659,7 +689,7 @@ MAX_Parse($$)
     my $dstsetting = vec($bits2, 3, 1); #is automatically switching to DST activated
     my $langateway = vec($bits2, 4, 1); #??
     my $panel = vec($bits2, 5, 1); #1 if the heating thermostat is locked for manually setting the temperature at the device
-    my $rferror = vec($bits2, 6, 1); #communication with link partner (what does that mean?)
+    my $rferror = vec($bits2, 6, 1); #communication with link partner - if device is not accessible over the air from the cube
     my $batterylow = vec($bits2, 7, 1); #1 if battery is low
 
     my $untilStr = defined($until3) ? MAX_ParseDateTime($until1,$until2,$until3)->{str} : "";
@@ -686,6 +716,8 @@ MAX_Parse($$)
     readingsBulkUpdate($shash, "mode", $ctrl_modes[$mode] );
     readingsBulkUpdate($shash, "battery", $batterylow ? "low" : "ok");
     readingsBulkUpdate($shash, "batteryState", $batterylow ? "low" : "ok"); # Forum #87575
+    readingsBulkUpdate($shash, "panel", $panel ? "locked" : "unlocked");
+    readingsBulkUpdate($shash, "rferror", $rferror ? "1" : "0");
     #The formatting of desiredTemperature must match with in MAX_Set:$templist
     #Sometime we get an MAX_Parse MAX,1,ThermostatState,01090d,180000000000, where desiredTemperature is 0 - ignore it
     readingsBulkUpdate($shash, "desiredTemperature", MAX_SerializeTemperature($desiredTemperature)) if($desiredTemperature != 0);
@@ -715,7 +747,7 @@ MAX_Parse($$)
       my $dstsetting = vec($bits2, 3, 1); #is automatically switching to DST activated
       my $langateway = vec($bits2, 4, 1); #??
       my $panel = vec($bits2, 5, 1); #1 if the heating thermostat is locked for manually setting the temperature at the device
-      my $rferror = vec($bits2, 6, 1); #communication with link partner (what does that mean?)
+      my $rferror = vec($bits2, 6, 1); #communication with link partner - if device is not accessible over the air from the cube
       my $batterylow = vec($bits2, 7, 1); #1 if battery is low
 
       my $untilStr = "";
@@ -733,6 +765,8 @@ MAX_Parse($$)
       readingsBulkUpdate($shash, "mode", $ctrl_modes[$mode] );
       readingsBulkUpdate($shash, "battery", $batterylow ? "low" : "ok");
       readingsBulkUpdate($shash, "batteryState", $batterylow ? "low" : "ok"); # Forum #87575
+      readingsBulkUpdate($shash, "panel", $panel ? "locked" : "unlocked");
+      readingsBulkUpdate($shash, "rferror", $rferror ? "1" : "0");
       readingsBulkUpdate($shash, "displayActualTemperature", ($displayActualTemperature) ? 1 : 0);
     } else {
       Log3 $hash, 2, "Invalid $msgtype packet"
@@ -762,6 +796,7 @@ MAX_Parse($$)
 
     readingsBulkUpdate($shash, "battery", $batterylow ? "low" : "ok");
     readingsBulkUpdate($shash, "batteryState", $batterylow ? "low" : "ok"); # Forum #87575
+    readingsBulkUpdate($shash, "rferror", $rferror ? "1" : "0");
     readingsBulkUpdate($shash,"onoff",$isopen);
 
   }elsif($msgtype eq "PushButtonState") {
@@ -775,6 +810,7 @@ MAX_Parse($$)
     readingsBulkUpdate($shash, "batteryState", $batterylow ? "low" : "ok"); # Forum #87575
     readingsBulkUpdate($shash, "onoff", $onoff);
     readingsBulkUpdate($shash, "connection", $gateway);
+    readingsBulkUpdate($shash, "rferror", $rferror ? "1" : "0");
 
   } elsif(grep /^$msgtype$/, ("HeatingThermostatConfig", "WallThermostatConfig")) {
     readingsBulkUpdate($shash, "ecoTemperature", MAX_SerializeTemperature($args[0]));

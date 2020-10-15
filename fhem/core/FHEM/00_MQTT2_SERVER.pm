@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_MQTT2_SERVER.pm 19753 2019-07-01 06:42:12Z rudolfkoenig $
+# $Id: 00_MQTT2_SERVER.pm 21339 2020-03-02 19:10:38Z rudolfkoenig $
 package main;
 
 # TODO: test SSL
@@ -41,16 +41,17 @@ MQTT2_SERVER_Initialize($)
   my @attrList = qw(
     SSL:0,1
     autocreate:no,simple,complex
-    disable:0,1
+    clientId
+    disable:1,0
     disabledForIntervals
     keepaliveFactor
-    rePublish
+    rePublish:1,0
     rawEvents
     sslVersion
     sslCertPrefix
   );
   use warnings 'qw';
-  $hash->{AttrList} = join(" ", @attrList);
+  $hash->{AttrList} = join(" ", @attrList)." ".$readingFnAttributes;
 }
 
 #####################################
@@ -82,7 +83,7 @@ MQTT2_SERVER_keepaliveChecker($)
 {
   my ($hash) = @_;
   my $now = gettimeofday();
-  my $multiplier = AttrVal($hash, "keepaliveFactor", 1.5);
+  my $multiplier = AttrVal($hash->{NAME}, "keepaliveFactor", 1.5);
   if($multiplier) {
     foreach my $clName (keys %{$hash->{clients}}) {
       my $cHash = $defs{$clName};
@@ -136,7 +137,7 @@ MQTT2_SERVER_Attr(@)
   my ($type, $devName, $attrName, @param) = @_;
   my $hash = $defs{$devName};
   if($type eq "set" && $attrName eq "SSL") {
-    TcpServer_SetSSL($hash);
+    InternalTimer(1, "TcpServer_SetSSL", $hash, 0); # Wait for sslCertPrefix
   }
   return undef;
 } 
@@ -161,6 +162,7 @@ MQTT2_SERVER_Set($@)
     return "Usage: publish -r topic [value]" if(@a < 1);
     my $tp = shift(@a);
     my $val = join(" ", @a);
+    readingsSingleUpdate($hash, "lastPublish", "$tp:$val", 1);
     MQTT2_SERVER_doPublish($hash->{CL}, $hash, $tp, $val, $retain);
   }
 }
@@ -201,6 +203,18 @@ my %cptype = (
 );
 
 #####################################
+sub
+MQTT2_SERVER_out($$$;$)
+{
+  my ($hash, $msg, $dump, $callback) = @_;
+  addToWritebuffer($hash, $msg, $callback);
+  if($dump) {
+    my $cpt = $cptype{ord(substr($msg,0,1)) >> 4};
+    $msg =~ s/([^ -~])/"(".ord($1).")"/ge;
+    Log3 $dump, 5, "out: $cpt: $msg";
+  }
+}
+
 sub
 MQTT2_SERVER_Read($@)
 {
@@ -260,10 +274,11 @@ MQTT2_SERVER_Read($@)
   $hash->{lastMsgTime} = gettimeofday();
 
   # Lowlevel debugging
-  if(AttrVal($sname, "verbose", 1) >= 5) {
+  my $dump = (AttrVal($sname, "verbose", 1) >= 5) ? $sname : undef;
+  if($dump) {
     my $msg = substr($hash->{BUF}, 0, $off+$tlen);
     $msg =~ s/([^ -~])/"(".ord($1).")"/ge;
-    Log3 $sname, 5, "$cpt: $msg";
+    Log3 $sname, 5, "in:  $cpt: $msg";
   }
 
   $hash->{BUF} = substr($hash->{BUF}, $tlen+$off);
@@ -303,13 +318,16 @@ MQTT2_SERVER_Read($@)
     }
 
     my $ret = Authenticate($hash, "basicAuth:".encode_base64("$usr:$pwd"));
-    return MQTT2_SERVER_terminate($hash, pack("C*", 0x20, 2, 0, 4)) if($ret==2);
+    if($ret == 2) { # CONNACK, Error
+      return MQTT2_SERVER_out($hash, pack("C*", 0x20, 2, 0, 4), $dump, 
+                                sub{ CommandDelete(undef, $hash->{NAME}); });
+    }
 
     $hash->{subscriptions} = {};
     $defs{$sname}{clients}{$cname} = 1;
 
-    Log3 $sname, 4, "$cname $hash->{cid} $cpt V:$hash->{protoNum} $desc";
-    addToWritebuffer($hash, pack("C*", 0x20, 2, 0, 0)); # CONNACK, no error
+    Log3 $sname, 4, "  $cname $hash->{cid} $cpt V:$hash->{protoNum} $desc";
+    MQTT2_SERVER_out($hash, pack("C*", 0x20, 2, 0, 0), $dump); # CONNACK+OK
 
   ####################################
   } elsif($cpt eq "PUBLISH") {
@@ -322,8 +340,9 @@ MQTT2_SERVER_Read($@)
       $off += 2;
     }
     $val = (length($pl)>$off ? substr($pl, $off) : "");
-    Log3 $sname, 4, "$cname $hash->{cid} $cpt $tp:$val";
-    addToWritebuffer($hash, pack("CCnC*", 0x40, 2, $pid)) if($qos); # PUBACK
+    Log3 $sname, 4, "  $cname $hash->{cid} $cpt $tp:$val";
+    # PUBACK
+    MQTT2_SERVER_out($hash, pack("CCnC*", 0x40, 2, $pid), $dump) if($qos);
     MQTT2_SERVER_doPublish($hash, $defs{$sname}, $tp, $val, $cf & 0x01);
 
   ####################################
@@ -331,7 +350,7 @@ MQTT2_SERVER_Read($@)
 
   ####################################
   } elsif($cpt eq "SUBSCRIBE") {
-    Log3 $sname, 4, "$cname $hash->{cid} $cpt";
+    Log3 $sname, 4, "  $cname $hash->{cid} $cpt";
     my $pid = unpack('n', substr($pl, 0, 2));
     my ($subscr, @ret);
     $off = 2;
@@ -342,7 +361,8 @@ MQTT2_SERVER_Read($@)
       Log3 $sname, 4, "  topic:$subscr qos:$qos";
       push @ret, ($qos > 1 ? 1 : 0);    # max qos supported is 1
     }
-    addToWritebuffer($hash, pack("CCnC*", 0x90, 3, $pid, @ret)); # SUBACK
+    # SUBACK
+    MQTT2_SERVER_out($hash, pack("CCnC*", 0x90, 3, $pid, maxNum(@ret)), $dump);
 
     if(!$hash->{answerScheduled}) {
       $hash->{answerScheduled} = 1;
@@ -357,7 +377,7 @@ MQTT2_SERVER_Read($@)
 
   ####################################
   } elsif($cpt eq "UNSUBSCRIBE") {
-    Log3 $sname, 4, "$cname $hash->{cid} $cpt";
+    Log3 $sname, 4, "  $cname $hash->{cid} $cpt";
     my $pid = unpack('n', substr($pl, 0, 2));
     my ($subscr, @ret);
     $off = 2;
@@ -366,16 +386,16 @@ MQTT2_SERVER_Read($@)
       delete $hash->{subscriptions}{$subscr};
       Log3 $sname, 4, "  topic:$subscr";
     }
-    addToWritebuffer($hash, pack("CCn", 0xb0, 2, $pid)); # UNSUBACK
+    MQTT2_SERVER_out($hash, pack("CCn", 0xb0, 2, $pid), $dump); # UNSUBACK
 
   ####################################
   } elsif($cpt eq "PINGREQ") {
-    Log3 $sname, 4, "$cname $hash->{cid} $cpt";
-    addToWritebuffer($hash, pack("C*", 0xd0, 0)); # pingresp
+    Log3 $sname, 4, "  $cname $hash->{cid} $cpt";
+    MQTT2_SERVER_out($hash, pack("C*", 0xd0, 0), $dump); # PINGRESP
 
   ####################################
   } elsif($cpt eq "DISCONNECT") {
-    Log3 $sname, 4, "$cname $hash->{cid} $cpt";
+    Log3 $sname, 4, "  $cname $hash->{cid} $cpt";
     delete($hash->{lwt}); # no LWT on disconnect, see doc, chapter 3.14
     return CommandDelete(undef, $cname);
 
@@ -421,8 +441,7 @@ MQTT2_SERVER_doPublish($$$$;$)
   }
 
   foreach my $clName (keys %{$server->{clients}}) {
-    MQTT2_SERVER_sendto($server, $defs{$clName}, $tp, $val)
-        if($src->{NAME} ne $clName);
+    MQTT2_SERVER_sendto($server, $defs{$clName}, $tp, $val);
   }
 
   my $serverName = $server->{NAME};
@@ -435,6 +454,7 @@ MQTT2_SERVER_doPublish($$$$;$)
     my $ac = AttrVal($serverName, "autocreate", "simple");
     $ac = $ac eq "1" ? "simple" : ($ac eq "0" ? "no" : $ac); # backward comp.
 
+    $cid = AttrVal($serverName, "clientId", $cid);
     Dispatch($server, "autocreate=$ac\0$cid\0$tp\0$val", undef, $ac eq "no"); 
     my $re = AttrVal($serverName, "rawEvents", undef);
     DoTrigger($server->{NAME}, "$tp:$val") if($re && $tp =~ m/$re/);
@@ -449,27 +469,22 @@ MQTT2_SERVER_sendto($$$$)
   my ($shash, $hash, $topic, $val) = @_;
   return if(IsDisabled($hash->{NAME}));
   $val = "" if(!defined($val));
+  my $dump = (AttrVal($shash->{NAME},"verbose",1) >= 5) ? $shash->{NAME} :undef;
   foreach my $s (keys %{$hash->{subscriptions}}) {
     my $re = $s;
+    $re =~ s,^#$,.*,g;
     $re =~ s,/?#,\\b.*,g;
     $re =~ s,\+,\\b[^/]+\\b,g;
     if($topic =~ m/^$re$/) {
-      Log3 $shash, 5, "$hash->{NAME} $hash->{cid} => $topic:$val";
-      addToWritebuffer($hash,
+      Log3 $shash, 5, "  $hash->{NAME} $hash->{cid} => $topic:$val";
+      MQTT2_SERVER_out($hash,                  # PUBLISH
         pack("C",0x30).
         MQTT2_SERVER_calcRemainingLength(2+length($topic)+length($val)).
         pack("n", length($topic)).
-        $topic.$val);
+        $topic.$val, $dump);
       last;       # send a message only once
     }
   }
-}
-
-sub
-MQTT2_SERVER_terminate($$)
-{
-  my ($hash,$msg) = @_;
-  addToWritebuffer( $hash, $msg, sub{ CommandDelete(undef, $hash->{NAME}); });
 }
 
 sub
@@ -550,7 +565,6 @@ MQTT2_SERVER_ReadDebug($$)
 1;
 
 =pod
-=item helper
 =item summary    Standalone MQTT message broker
 =item summary_DE Standalone MQTT message broker
 =begin html
@@ -602,6 +616,15 @@ MQTT2_SERVER_ReadDebug($$)
   <b>Attributes</b>
   <ul>
 
+    <a name="clientId"></a>
+    <li>clientId &lt;name&gt;<br>
+      set the MQTT clientId for all connections, for setups with clients
+      creating a different MQTT-ID for each connection. The autocreate
+      capabilities are greatly reduced in this case, and setting it requires to
+      remove the clientId from all existing MQTT2_DEVICE readingList
+      attributes.
+      </li></br>
+
     <li><a href="#disable">disable</a><br>
         <a href="#disabledForIntervals">disabledForIntervals</a><br>
       disable distribution of messages. The server itself will accept and store
@@ -636,7 +659,7 @@ MQTT2_SERVER_ReadDebug($$)
 
     <a name="SSL"></a>
     <li>SSL<br>
-      Enable SSL (i.e. TLS)
+      Enable SSL (i.e. TLS).
       </li><br>
 
     <li>sslVersion<br>

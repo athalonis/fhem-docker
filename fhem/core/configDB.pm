@@ -1,4 +1,4 @@
-# $Id: configDB.pm 19514 2019-06-01 07:50:09Z betateilchen $
+# $Id: configDB.pm 21277 2020-02-25 19:44:21Z betateilchen $
 
 =for comment
 
@@ -146,6 +146,8 @@
 # 2019-01-18 - changed   use GetDefAndAttr()
 #
 # 2019-02-16 - changed   default field length for table creation
+#
+# 2020-02-25 - added     support weekprofile in automatic migration
 #
 ##############################################################################
 =cut
@@ -614,6 +616,15 @@ sub cfgDB_MigrationImport() {
 		push @files, $filename;
 	}
 
+# find weekprofile configurations
+	$filename ='';
+	@def = '';
+	@def = _cfgDB_findDef('TYPE=weekprofile','CONFIGFILE');
+	foreach $filename (@def) {
+		next unless $filename;
+		push @files, $filename;
+	}
+
 # find holiday files
 	$filename ='';
 	@def = '';
@@ -647,7 +658,7 @@ sub cfgDB_MigrationImport() {
 
 # return SVN Id, called by fhem's CommandVersion
 sub cfgDB_svnId() { 
-	return "# ".'$Id: configDB.pm 19514 2019-06-01 07:50:09Z betateilchen $' 
+	return "# ".'$Id: configDB.pm 21277 2020-02-25 19:44:21Z betateilchen $' 
 }
 
 # return filelist depending on directory and regexp

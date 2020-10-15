@@ -1,9 +1,9 @@
 ﻿##########################################################################################################
-# $Id: 93_DbRep.pm 19507 2019-05-31 09:03:18Z DS_Starter $
+# $Id: 93_DbRep.pm 21473 2020-03-21 21:09:33Z DS_Starter $
 ##########################################################################################################
 #       93_DbRep.pm
 #
-#       (c) 2016-2019 by Heiko Maaz
+#       (c) 2016-2020 by Heiko Maaz
 #       e-mail: Heiko dot Maaz at t-online dot de
 #
 #       This Module can be used to select and report content of databases written by 93_DbLog module
@@ -50,7 +50,7 @@ use DBI::Const::GetInfoType;
 use Blocking;
 use Color;                           # colorpicker Widget
 use Time::Local;
-use Encode qw(encode_utf8);
+use Encode;
 use IO::Compress::Gzip qw(gzip $GzipError);
 use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
 # no if $] >= 5.018000, warnings => 'experimental';
@@ -58,49 +58,90 @@ no if $] >= 5.017011, warnings => 'experimental::smartmatch';
 
 # Version History intern
 our %DbRep_vNotesIntern = (
-  "8.21.1" => "31.05.2019  syncStandby considers executeBeforeProc, commandRef revised ",
-  "8.21.0" => "28.04.2019  implement FHEM command \"dbReadingsVal\" ",
-  "8.20.1" => "28.04.2019  set index verbose changed, check index \"Report_Idx\" in getInitData ",
-  "8.20.0" => "27.04.2019  don't save hash refs in central hash to prevent potential memory leak, new set \"index\" ".
-                           "command, \"repository\" added in Meta.json ",
-  "8.19.1" => "10.04.2019  adjust \$hash->{HELPER}{IDRETRIES} if value is negative ",
-  "8.19.0" => "04.04.2019  explain is possible in sqlCmd ",
-  "8.18.0" => "01.04.2019  new aggregation year ",
-  "8.17.2" => "28.03.2019  consideration of daylight saving time/leap year changed (func DbRep_corrRelTime) ",
-  "8.17.1" => "24.03.2019  edit Meta data, activate Meta.pm, prevent module from deactivation in case of unavailable Meta.pm ",
-  "8.17.0" => "20.03.2019  prepare for Meta.pm, new attribute \"sqlCmdVars\" ",
-  "8.16.0" => "17.03.2019  include sortTopicNum from 99_Utils, allow PRAGMAS leading an SQLIte SQL-Statement in sqlCmd, switch to DbRep_setVersionInfo ",
-  "8.15.0" => "04.03.2019  readingsRename can rename readings of a given (optional) device ",
-  "8.14.1" => "04.03.2019  Bugfix in deldoublets with SQLite, Forum: https://forum.fhem.de/index.php/topic,53584.msg914489.html#msg914489 ",
-  "8.14.0" => "19.02.2019  delete Readings if !goodReadingName and featurelevel > 5.9 ",
-  "8.13.0" => "11.02.2019  executeBeforeProc / executeAfterProc for sumValue, maxValue, minValue, diffValue, averageValue ",
-  "8.12.0" => "10.02.2019  executeBeforeProc / executeAfterProc for sqlCmd ",
-  "8.11.2" => "03.02.2019  fix no running tableCurrentFillup if database is closed ",
-  "8.11.1" => "25.01.2019  fix sort of versionNotes ",
-  "8.11.0" => "24.01.2019  command exportToFile or attribute \"expimpfile\" accepts option \"MAXLINES=\" ",
-  "8.10.1" => "23.01.2019  change DbRep_charfilter to eliminate \xc2",
-  "8.10.0" => "19.01.2019  sqlCmd, dbValue may input SQL session variables, Forum:#96082 ",
-  "8.9.10" => "18.01.2019  fix warnings Malformed UTF-8 character during importFromFile, Forum:#96056 ",
-  "8.9.9"  => "06.01.2019  diffval_DoParse: 'ORDER BY TIMESTAMP' added to statements Forum:https://forum.fhem.de/index.php/topic,53584.msg882082.html#msg882082",
-  "8.9.8"  => "27.11.2018  minor fix in deviceRename, commandref revised ",
-  "8.9.7"  => "21.11.2018  DbRep_firstconnect now uses attribute \"timeout\" ",
-  "8.9.6"  => "15.11.2018  fix PERL WARNING: Use of uninitialized value \$fref in pattern match (m//), sub DbRep_sec2hms for hms transforming",
-  "8.9.5"  => "09.11.2018  hash %dbrep_col substituted by get data from dblog device in func DbRep_firstconnect, fix importFromFile contains only SPACE ",
-  "8.9.0"  => "07.11.2018  command delDoublets added ",
-  "8.8.0"  => "06.11.2018  first connect routine switched to DbRep_Main, get COLSET from DBLOG-instance, attribute 'fastStart' added ",
-  "8.7.0"  => "04.11.2018  attribute valueFilter applied to functions based on 'SELECT', 'UPDATE', 'DELETE' and 'valueFilter' generally applied to field 'VALUE' ",
-  "8.6.0"  => "29.10.2018  reduceLog use attributes device/reading (can be overwritten by set-options) ",
-  "8.5.0"  => "27.10.2018  versionNotes revised, EXCLUDE of reading/device possible (DbRep_specsForSql changed) ",
-  "8.4.0"  => "22.10.2018  countEntries separately for every reading if attribute \"countEntriesDetail\" is set, ".
-                           "versionNotes changed to support en/de, get dbValue as textfield-long ",
-  "8.3.0"  => "17.10.2018  reduceLog from DbLog integrated into DbRep, textField-long as default for sqlCmd, both attributes timeOlderThan and timeDiffToNow can be set at same time",
-  "8.2.3"  => "07.10.2018  check availability of DbLog-device at definition time of DbRep-device ",  
-  "8.2.2"  => "07.10.2018  DbRep_getInitData changed, fix don't get the real min timestamp in rare cases ",  
-  "8.2.1"  => "07.10.2018  \$hash->{dbloghash}{HELPER}{REOPEN_RUNS_UNTIL} contains time until DB is closed ",
-  "8.2.0"  => "05.10.2018  direct help for attributes ",
-  "8.1.0"  => "02.10.2018  new get versionNotes command ",
-  "8.0.1"  => "20.09.2018  DbRep_getInitData improved",
-  "8.0.0"  => "11.09.2018  get filesize in DbRep_WriteToDumpFile corrected, restoreMySQL for clientSide dumps, minor fixes ",
+  "8.38.0"  => "21.03.2020  sqlSpecial readingsDifferenceByTimeDelta, fix FHEM crash if no time-attribute is set and time ".
+                            "option of delEntries / reduceLog is used, minor fix for sqlCmdHistory ",
+  "8.37.0"  => "20.03.2020  add column header for free selects (sqlCmd) ",
+  "8.36.0"  => "19.03.2020  sqlSpecial recentReadingsOfDevice ",
+  "8.35.0"  => "19.03.2020  option older than days and newer than days for delEntries function ",
+  "8.34.0"  => "18.03.2020  option writeToDBSingle for functions averageValue, sumValue ",     
+  "8.33.0"  => "18.03.2020  option older than days and newer than days for reduceLog function ",
+  "8.32.4"  => "15.03.2020  fix rights check for index operation ",
+  "8.32.3"  => "10.03.2020  better logfile messages in some cases of index operation  ",
+  "8.32.2"  => "01.03.2020  fix PERL WARNING: Argument \"\" isn't numeric in sprintf at ./FHEM/93_DbRep.pm line 10708 again ",
+  "8.32.1"  => "08.02.2020  fix PERL WARNING: Argument \"\" isn't numeric in sprintf at ./FHEM/93_DbRep.pm line 10708 ",
+  "8.32.0"  => "29.01.2020  new option \"deleteOther\" for minValue ",
+  "8.31.0"  => "26.01.2020  new option \"deleteOther\" for maxValue ",
+  "8.30.8"  => "25.01.2020  adjust SQL-Statements in OutputWriteToDB to avoid Duplicate entry errors and other fixes ",
+  "8.30.7"  => "24.01.2020  corrected count of inserted rows into standby database (DbRep_WriteToDB) ",
+  "8.30.6"  => "23.01.2020  delDoublets now are working also for PostgreSQL, calculation of number_fetched_rows corrected ",
+  "8.30.5"  => "23.01.2020  remove adminCredentials from set of device type \"Agent\" ",
+  "8.30.4"  => "22.01.2020  adjust behavior of OutputWriteToDB (averageValue,sumValue) - write value at every begin and also at every end of period ".
+                            "Forum: https://forum.fhem.de/index.php/topic,105787.msg1013920.html#msg1013920 ".
+                            "fix Warning when Agent has detected a renamed device",
+  "8.30.3"  => "28.11.2019  countEntries encode \$device, change count_ParseDone for \"countEntriesDetail\" ",
+  "8.30.2"  => "24.11.2019  change order of delete(\$hash->{HELPER}{RUNNING_PID}) in *_ParseDone routines, Forum: https://forum.fhem.de/index.php/topic,105591.msg996089.html#msg996089 ",
+  "8.30.1"  => "22.11.2019  commandref revised ",
+  "8.30.0"  => "14.11.2019  new command set adminCredentials and get storedCredentials, attribute useAdminCredentials ",
+  "8.29.1"  => "11.11.2019  commandref revised ",
+  "8.29.0"  => "08.11.2019  add option FullDay for timeDiffToNow and timeOlderThan, Forum: https://forum.fhem.de/index.php/topic,53584.msg991139.html#msg991139 ",
+  "8.28.2"  => "18.10.2019  change SQL selection in deldoublets_DoParse due to Incompatible change of MySQL 8.0.13, Forum: https://forum.fhem.de/index.php/topic,104593.msg985007.html#msg985007 ",
+  "8.28.1"  => "09.10.2019  fix warnings line 5173 ",
+  "8.28.0"  => "30.09.2019  seqDoubletsVariance - separate specification of positive and negative variance possible, Forum: https://forum.fhem.de/index.php/topic,53584.msg959963.html#msg959963 ",
+  "8.27.2"  => "27.09.2019  fix export data to file, fix delDoublets if MySQL and VALUE contains \, fix readingRename without leading device ",
+  "8.27.1"  => "22.09.2019  comma are shown in sqlCmdHistory, Forum: #103908 ",
+  "8.27.0"  => "15.09.2019  save memory usage by eliminating \$hash -> {dbloghash}, fix warning uninitialized value \$idevice in split ",
+  "8.26.0"  => "07.09.2019  make SQL Wildcard (\%) possible as placeholder in a reading list: https://forum.fhem.de/index.php/topic,101756.0.html ".
+                            "sub DbRep_createUpdateSql deleted, new sub DbRep_createCommonSql ",
+  "8.25.0"  => "01.09.2019  make SQL Wildcard (\%) possible as placeholder in a device list: https://forum.fhem.de/index.php/topic,101756.0.html ".
+                            "sub DbRep_modAssociatedWith changed ",
+  "8.24.0"  => "24.08.2019  devices marked as \"Associated With\" if possible, fhem.pl 20069 2019-08-27 08:36:02Z is needed ",
+  "8.23.1"  => "26.08.2019  fix add newline at the end of DbRep_dbValue result, Forum: #103295 ",
+  "8.23.0"  => "24.08.2019  prepared for devices marked as \"Associated With\" if possible ",
+  "8.22.0"  => "23.08.2019  new attr fetchValueFn. When fetching the database content, manipulate the VALUE-field before create reading ",
+  "8.21.2"  => "14.08.2019  commandRef revised ",
+  "8.21.1"  => "31.05.2019  syncStandby considers executeBeforeProc, commandRef revised ",
+  "8.21.0"  => "28.04.2019  implement FHEM command \"dbReadingsVal\" ",
+  "8.20.1"  => "28.04.2019  set index verbose changed, check index \"Report_Idx\" in getInitData ",
+  "8.20.0"  => "27.04.2019  don't save hash refs in central hash to prevent potential memory leak, new set \"index\" ".
+                            "command, \"repository\" added in Meta.json ",
+  "8.19.1"  => "10.04.2019  adjust \$hash->{HELPER}{IDRETRIES} if value is negative ",
+  "8.19.0"  => "04.04.2019  explain is possible in sqlCmd ",
+  "8.18.0"  => "01.04.2019  new aggregation year ",
+  "8.17.2"  => "28.03.2019  consideration of daylight saving time/leap year changed (func DbRep_corrRelTime) ",
+  "8.17.1"  => "24.03.2019  edit Meta data, activate Meta.pm, prevent module from deactivation in case of unavailable Meta.pm ",
+  "8.17.0"  => "20.03.2019  prepare for Meta.pm, new attribute \"sqlCmdVars\" ",
+  "8.16.0"  => "17.03.2019  include sortTopicNum from 99_Utils, allow PRAGMAS leading an SQLIte SQL-Statement in sqlCmd, switch to DbRep_setVersionInfo ",
+  "8.15.0"  => "04.03.2019  readingsRename can rename readings of a given (optional) device ",
+  "8.14.1"  => "04.03.2019  Bugfix in deldoublets with SQLite, Forum: https://forum.fhem.de/index.php/topic,53584.msg914489.html#msg914489 ",
+  "8.14.0"  => "19.02.2019  delete Readings if !goodReadingName and featurelevel > 5.9 ",
+  "8.13.0"  => "11.02.2019  executeBeforeProc / executeAfterProc for sumValue, maxValue, minValue, diffValue, averageValue ",
+  "8.12.0"  => "10.02.2019  executeBeforeProc / executeAfterProc for sqlCmd ",
+  "8.11.2"  => "03.02.2019  fix no running tableCurrentFillup if database is closed ",
+  "8.11.1"  => "25.01.2019  fix sort of versionNotes ",
+  "8.11.0"  => "24.01.2019  command exportToFile or attribute \"expimpfile\" accepts option \"MAXLINES=\" ",
+  "8.10.1"  => "23.01.2019  change DbRep_charfilter to eliminate \xc2",
+  "8.10.0"  => "19.01.2019  sqlCmd, dbValue may input SQL session variables, Forum:#96082 ",
+  "8.9.10"  => "18.01.2019  fix warnings Malformed UTF-8 character during importFromFile, Forum:#96056 ",
+  "8.9.9"   => "06.01.2019  diffval_DoParse: 'ORDER BY TIMESTAMP' added to statements Forum:https://forum.fhem.de/index.php/topic,53584.msg882082.html#msg882082",
+  "8.9.8"   => "27.11.2018  minor fix in deviceRename, commandref revised ",
+  "8.9.7"   => "21.11.2018  DbRep_firstconnect now uses attribute \"timeout\" ",
+  "8.9.6"   => "15.11.2018  fix PERL WARNING: Use of uninitialized value \$fref in pattern match (m//), sub DbRep_sec2hms for hms transforming",
+  "8.9.5"   => "09.11.2018  hash %dbrep_col substituted by get data from dblog device in func DbRep_firstconnect, fix importFromFile contains only SPACE ",
+  "8.9.0"   => "07.11.2018  command delDoublets added ",
+  "8.8.0"   => "06.11.2018  first connect routine switched to DbRep_Main, get COLSET from DBLOG-instance, attribute 'fastStart' added ",
+  "8.7.0"   => "04.11.2018  attribute valueFilter applied to functions based on 'SELECT', 'UPDATE', 'DELETE' and 'valueFilter' generally applied to field 'VALUE' ",
+  "8.6.0"   => "29.10.2018  reduceLog use attributes device/reading (can be overwritten by set-options) ",
+  "8.5.0"   => "27.10.2018  versionNotes revised, EXCLUDE of reading/device possible (DbRep_specsForSql changed) ",
+  "8.4.0"   => "22.10.2018  countEntries separately for every reading if attribute \"countEntriesDetail\" is set, ".
+                            "versionNotes changed to support en/de, get dbValue as textfield-long ",
+  "8.3.0"   => "17.10.2018  reduceLog from DbLog integrated into DbRep, textField-long as default for sqlCmd, both attributes timeOlderThan and timeDiffToNow can be set at same time",
+  "8.2.3"   => "07.10.2018  check availability of DbLog-device at definition time of DbRep-device ",  
+  "8.2.2"   => "07.10.2018  DbRep_getInitData changed, fix don't get the real min timestamp in rare cases ",  
+  "8.2.1"   => "07.10.2018  \$hash->{dbloghash}{HELPER}{REOPEN_RUNS_UNTIL} contains time until DB is closed ",
+  "8.2.0"   => "05.10.2018  direct help for attributes ",
+  "8.1.0"   => "02.10.2018  new get versionNotes command ",
+  "8.0.1"   => "20.09.2018  DbRep_getInitData improved",
+  "8.0.0"   => "11.09.2018  get filesize in DbRep_WriteToDumpFile corrected, restoreMySQL for clientSide dumps, minor fixes ",
   "7.20.0"  => "04.09.2018  deviceRename can operate a Device name with blank, e.g. 'current balance' as old device name ",
   "7.19.0"  => "25.08.2018  attribute 'valueFilter' to filter datasets in fetchrows ",
   "7.18.2"  => "02.08.2018  fix in fetchrow function (forum:#89886), fix highlighting ",
@@ -130,60 +171,79 @@ our %DbRep_vNotesIntern = (
   "7.12.0"  => "16.02.2018  compression of dumpfile, restore of compressed files possible ",
   "7.11.0"  => "12.02.2018  new command 'repairSQLite' to repair a corrupted SQLite database ",
   "7.10.0"  => "10.02.2018  bugfix delete attr timeYearPeriod if set other time attributes, new 'changeValue' command ",
-  "7.9.0"  => "09.02.2018  new attribute 'avgTimeWeightMean' (time weight mean calculation), code review of selection routines, maxValue handle negative values correctly, one security second for correct create TimeArray in DbRep_normRelTime ",
-  "7.8.1"  => "04.02.2018  bugfix if IsDisabled (again), code review, bugfix last dataset is not selected if timestamp is fully set ('date time'), fix '\$runtime_string_next' = '\$runtime_string_next.999';' if \$runtime_string_next is part of sql-execute place holder AND contains date+time ",
-  "7.8.0"  => "04.02.2018  new command 'eraseReadings' ", 
-  "7.7.1"  => "03.02.2018  minor fix in DbRep_firstconnect if IsDisabled ",
-  "7.7.0"  => "29.01.2018  attribute 'averageCalcForm', calculation sceme 'avgDailyMeanGWS', 'avgArithmeticMean' for averageValue ",
-  "7.6.1"  => "27.01.2018  new attribute 'sqlCmdHistoryLength' and 'fetchMarkDuplicates' for highlighting multiple datasets by fetchrows ",
-  "7.6.0"  => "26.01.2018  events containing '|' possible in fetchrows & delSeqDoublets, fetchrows displays multiple \$k entries with timestamp suffix \$k (as index), sqlCmdHistory (avaiable if sqlCmd was executed) ",
-  "7.5.5"  => "25.01.2018  minor change in delSeqDoublets ",
-  "7.5.4"  => "24.01.2018  delseqdoubl_DoParse reviewed to optimize memory usage, executeBeforeDump executeAfterDump now available for 'delSeqDoublets' ",
-  "7.5.3"  => "23.01.2018  new attribute 'ftpDumpFilesKeep', version management added to FTP-usage ",
-  "7.5.2"  => "23.01.2018  fix typo DumpRowsCurrrent, dumpFilesKeep can be set to '0', commandref revised ",
-  "7.5.1"  => "20.01.2018  DbRep_DumpDone changed to create background_processing_time before execute 'executeAfterProc' Commandref updated ",
-  "7.5.0"  => "16.01.2018  DbRep_OutputWriteToDB, set options display/writeToDB for (max|min|sum|average|diff)Value ",
-  "7.4.1"  => "14.01.2018  fix old dumpfiles not deleted by dumpMySQL clientSide ",
-  "7.4.0"  => "09.01.2018  dumpSQLite/restoreSQLite, backup/restore now available when DbLog-device has reopen xxxx running, executeBeforeDump executeAfterDump also available for optimizeTables, vacuum, restoreMySQL, restoreSQLite, attribute executeBeforeDump / executeAfterDump renamed to executeBeforeProc & executeAfterProc ",
-  "7.3.1"  => "08.01.2018  fix syntax error for perl < 5.20 ",
-  "7.3.0"  => "07.01.2018  DbRep-charfilter avoid control characters in datasets to export, impfile_Push errortext improved, expfile_DoParse changed to use aggregation for split selects in timeslices (avoid heavy memory consumption) ",
-  "7.2.1"  => "04.01.2018  bugfix month out of range that causes fhem crash ",
-  "1.0.0"  => "19.05.2016  Initial"
+  "7.9.0"   => "09.02.2018  new attribute 'avgTimeWeightMean' (time weight mean calculation), code review of selection routines, maxValue handle negative values correctly, one security second for correct create TimeArray in DbRep_normRelTime ",
+  "7.8.1"   => "04.02.2018  bugfix if IsDisabled (again), code review, bugfix last dataset is not selected if timestamp is fully set ('date time'), fix '\$runtime_string_next' = '\$runtime_string_next.999';' if \$runtime_string_next is part of sql-execute place holder AND contains date+time ",
+  "7.8.0"   => "04.02.2018  new command 'eraseReadings' ", 
+  "7.7.1"   => "03.02.2018  minor fix in DbRep_firstconnect if IsDisabled ",
+  "7.7.0"   => "29.01.2018  attribute 'averageCalcForm', calculation sceme 'avgDailyMeanGWS', 'avgArithmeticMean' for averageValue ",
+  "7.6.1"   => "27.01.2018  new attribute 'sqlCmdHistoryLength' and 'fetchMarkDuplicates' for highlighting multiple datasets by fetchrows ",
+  "7.6.0"   => "26.01.2018  events containing '|' possible in fetchrows & delSeqDoublets, fetchrows displays multiple \$k entries with timestamp suffix \$k (as index), sqlCmdHistory (avaiable if sqlCmd was executed) ",
+  "7.5.5"   => "25.01.2018  minor change in delSeqDoublets ",
+  "7.5.4"   => "24.01.2018  delseqdoubl_DoParse reviewed to optimize memory usage, executeBeforeDump executeAfterDump now available for 'delSeqDoublets' ",
+  "7.5.3"   => "23.01.2018  new attribute 'ftpDumpFilesKeep', version management added to FTP-usage ",
+  "7.5.2"   => "23.01.2018  fix typo DumpRowsCurrrent, dumpFilesKeep can be set to '0', commandref revised ",
+  "7.5.1"   => "20.01.2018  DbRep_DumpDone changed to create background_processing_time before execute 'executeAfterProc' Commandref updated ",
+  "7.5.0"   => "16.01.2018  DbRep_OutputWriteToDB, set options display/writeToDB for (max|min|sum|average|diff)Value ",
+  "7.4.1"   => "14.01.2018  fix old dumpfiles not deleted by dumpMySQL clientSide ",
+  "7.4.0"   => "09.01.2018  dumpSQLite/restoreSQLite, backup/restore now available when DbLog-device has reopen xxxx running, executeBeforeDump executeAfterDump also available for optimizeTables, vacuum, restoreMySQL, restoreSQLite, attribute executeBeforeDump / executeAfterDump renamed to executeBeforeProc & executeAfterProc ",
+  "7.3.1"   => "08.01.2018  fix syntax error for perl < 5.20 ",
+  "7.3.0"   => "07.01.2018  DbRep-charfilter avoid control characters in datasets to export, impfile_Push errortext improved, expfile_DoParse changed to use aggregation for split selects in timeslices (avoid heavy memory consumption) ",
+  "7.2.1"   => "04.01.2018  bugfix month out of range that causes fhem crash ",
+  "1.0.0"   => "19.05.2016  Initial"
 );
 
 # Version History extern:
-our %DbRep_vNotesExtern = (
-  "8.21.0" => "28.04.2019 FHEM command \"dbReadingsVal\" implemented.",
-  "8.20.0" => "27.04.2019 With the new set \"index\" command it is now possible to list and (re)create the indexes which are ".
-              "needed for DbLog and/or DbRep operation.",
-  "8.19.0" => "04.04.2019 The \"explain\" SQL-command is possible in sqlCmd ",
-  "8.18.0" => "01.04.2019 New aggregation type \"year\" ",
-  "8.17.0" => "20.03.2019 With new attribute \"sqlCmdVars\" you are able to set SQL session variables or SQLite PRAGMA every time ".
-              "before running a SQL-statement with sqlCmd command.",
-  "8.16.0" => "17.03.2019 allow SQLite PRAGMAS leading an SQLIte SQL-Statement in sqlCmd ",
-  "8.15.0" => "04.03.2019 readingsRename can now rename readings of a given (optional) device instead of all found readings specified in command ",
-  "8.13.0" => "11.02.2019 executeBeforeProc / executeAfterProc is now available for sqlCmd,sumValue, maxValue, minValue, diffValue, averageValue ",
-  "8.11.0" => "24.01.2019 command exportToFile or attribute \"expimpfile\" accepts option \"MAXLINES=\" ",
-  "8.10.0" => "19.01.2019 In commands sqlCmd, dbValue you may now use SQL session variables like \"SET \@open:=NULL,\@closed:=NULL; SELECT ...\", Forum:#96082 ",
-  "8.9.0"  => "07.11.2018 new command set delDoublets added. This command allows to delete multiple occuring identical records. ",
-  "8.8.0"  => "06.11.2018 new attribute 'fastStart'. Usually every DbRep-device is making a short connect to its database when "
-              ."FHEM is restarted. When this attribute is set, the initial connect is done when the DbRep-device is doing its "
-              ."first task. ",
-  "8.7.0"  => "04.11.2018 attribute valueFilter applied to functions 'averageValue, changeValue, countEntries, delEntries, "
-              ."delSeqDoublets, diffValue, exportToFile, fetchrows, maxValue, minValue, reduceLog, sumValue, syncStandby' ,"
-              ." 'valueFilter' generally applied to database field 'VALUE' ",
-  "8.6.0"  => "29.10.2018 reduceLog use attributes device/reading (can be overwritten by set-options) ",
-  "8.5.0"  => "27.10.2018 devices and readings can be excluded by EXCLUDE-option in attributes \$reading/\$device ",
-  "8.4.0"  => "22.10.2018 New attribute \"countEntriesDetail\". Function countEntries creates number of datasets for every ".
-                          "reading separately if attribute \"countEntriesDetail\" is set. Get versionNotes changed to support en/de. ".
-                          "Function \"get dbValue\" opens an editor window ",
-  "8.3.0"  => "17.10.2018 reduceLog from DbLog integrated into DbRep, textField-long as default for sqlCmd, both attributes ".
-                          "timeOlderThan and timeDiffToNow can be set at same time -> the selection time between timeOlderThan ".
-                          "and timeDiffToNow can be calculated dynamically ",
-  "8.2.2"  => "07.10.2018 fix don't get the real min timestamp in rare cases ",
-  "8.2.0"  => "05.10.2018 direct help for attributes ",
-  "8.1.0"  => "01.10.2018 new get versionNotes command ",
-  "8.0.0"  => "11.09.2018 get filesize in DbRep_WriteToDumpFile corrected, restoreMySQL for clientSide dumps, minor fixes ",
+our %DbRep_vNotesExtern = ( 
+  "8.36.0"  => "19.03.2020 Some simplifications for fast mutable module usage is built in, such as possible command option older than / newer than days for reduceLog and delEntries function. ".
+                           "A new option \"writeToDBSingle\" for functions averageValue, sumValue is built in as well as a new sqlSpecial \"recentReadingsOfDevice\". ",
+  "8.32.0"  => "29.01.2020 A new option \"deleteOther\" is available for commands \"maxValue\" and \"minValue\". Now it is possible to delete all values except the ".
+                           "extreme values (max/min) from the database within the specified limits of time, device, reading and so on. ",
+  "8.30.4"  => "22.01.2020 The behavior of write back values to database is changed for functions averageValue and sumValue. The solution values of that functions now are ".
+                           "written at every begin and also at every end of specified aggregation period. ",
+  "8.30.0"  => "14.11.2019 A new command \"set <name> adminCredentials\" and \"get <name> storedCredentials\" ist provided. ".
+                           "Use it to store a database priviledged user. This user DbRep can utilize for several operations which are need more (administative) ".
+						   "user rights (e.g. index, sqlCmd). ",
+  "8.29.0"  => "08.11.2019 add option FullDay for timeDiffToNow and timeOlderThan, Forum: https://forum.fhem.de/index.php/topic,53584.msg991139.html#msg991139 ",
+  "8.28.0"  => "30.09.2019 seqDoubletsVariance - separate specification of positive and negative variance possible, Forum: https://forum.fhem.de/index.php/topic,53584.msg959963.html#msg959963 ",
+  "8.25.0"  => "29.08.2019 If a list of devices in attribute \"device\" contains a SQL wildcard (\%), this wildcard is now "
+                           ."dissolved into separate devices if they are still existing in your FHEM configuration. "
+                           ."Please see <a href=\"https://forum.fhem.de/index.php/topic,101756.0.html\">this Forum Thread</a> "
+                           ."for further information. ",
+  "8.24.0"  => "24.08.2019 Devices which are specified in attribute \"device\" are marked as \"Associated With\" if they are "
+                           ."still existing in your FHEM configuration. At least fhem.pl 20069 2019-08-27 08:36:02 is needed. ",
+  "8.22.0"  => "23.08.2019 A new attribute \"fetchValueFn\" is provided. When fetching the database content, you are able to manipulate ".
+                           "the value displayed from the VALUE database field before create the appropriate reading. ",
+  "8.21.0"  => "28.04.2019 FHEM command \"dbReadingsVal\" implemented.",
+  "8.20.0"  => "27.04.2019 With the new set \"index\" command it is now possible to list and (re)create the indexes which are ".
+                           "needed for DbLog and/or DbRep operation.",
+  "8.19.0"  => "04.04.2019 The \"explain\" SQL-command is possible in sqlCmd ",
+  "8.18.0"  => "01.04.2019 New aggregation type \"year\" ",
+  "8.17.0"  => "20.03.2019 With new attribute \"sqlCmdVars\" you are able to set SQL session variables or SQLite PRAGMA every time ".
+                           "before running a SQL-statement with sqlCmd command.",
+  "8.16.0"  => "17.03.2019 allow SQLite PRAGMAS leading an SQLIte SQL-Statement in sqlCmd ",
+  "8.15.0"  => "04.03.2019 readingsRename can now rename readings of a given (optional) device instead of all found readings specified in command ",
+  "8.13.0"  => "11.02.2019 executeBeforeProc / executeAfterProc is now available for sqlCmd,sumValue, maxValue, minValue, diffValue, averageValue ",
+  "8.11.0"  => "24.01.2019 command exportToFile or attribute \"expimpfile\" accepts option \"MAXLINES=\" ",
+  "8.10.0"  => "19.01.2019 In commands sqlCmd, dbValue you may now use SQL session variables like \"SET \@open:=NULL,\@closed:=NULL; SELECT ...\", Forum:#96082 ",
+  "8.9.0"   => "07.11.2018 new command set delDoublets added. This command allows to delete multiple occuring identical records. ",
+  "8.8.0"   => "06.11.2018 new attribute 'fastStart'. Usually every DbRep-device is making a short connect to its database when "
+                           ."FHEM is restarted. When this attribute is set, the initial connect is done when the DbRep-device is doing its "
+                           ."first task. ",
+  "8.7.0"   => "04.11.2018 attribute valueFilter applied to functions 'averageValue, changeValue, countEntries, delEntries, "
+                           ."delSeqDoublets, diffValue, exportToFile, fetchrows, maxValue, minValue, reduceLog, sumValue, syncStandby' ,"
+                           ." 'valueFilter' generally applied to database field 'VALUE' ",
+  "8.6.0"   => "29.10.2018 reduceLog use attributes device/reading (can be overwritten by set-options) ",
+  "8.5.0"   => "27.10.2018 devices and readings can be excluded by EXCLUDE-option in attributes \$reading/\$device ",
+  "8.4.0"   => "22.10.2018 New attribute \"countEntriesDetail\". Function countEntries creates number of datasets for every ".
+                           "reading separately if attribute \"countEntriesDetail\" is set. Get versionNotes changed to support en/de. ".
+                           "Function \"get dbValue\" opens an editor window ",
+  "8.3.0"   => "17.10.2018 reduceLog from DbLog integrated into DbRep, textField-long as default for sqlCmd, both attributes ".
+                           "timeOlderThan and timeDiffToNow can be set at same time -> the selection time between timeOlderThan ".
+                           "and timeDiffToNow can be calculated dynamically ",
+  "8.2.2"   => "07.10.2018 fix don't get the real min timestamp in rare cases ",
+  "8.2.0"   => "05.10.2018 direct help for attributes ",
+  "8.1.0"   => "01.10.2018 new get versionNotes command ",
+  "8.0.0"   => "11.09.2018 get filesize in DbRep_WriteToDumpFile corrected, restoreMySQL for clientSide dumps, minor fixes ",
   "7.20.0"  => "04.09.2018 deviceRename can operate a Device name with blank, e.g. 'current balance' as old device name ",
   "7.19.0"  => "25.08.2018 attribute 'valueFilter' to filter datasets in fetchrows ",
   "7.18.2"  => "02.08.2018 fix in fetchrow function (forum:#89886), fix highlighting ",
@@ -201,32 +261,32 @@ our %DbRep_vNotesExtern = (
   "7.12.0"  => "16.02.2018 compression of dumpfile, restore of compressed files possible ",
   "7.11.0"  => "12.02.2018 new command 'repairSQLite' to repair a corrupted SQLite database ",
   "7.10.0"  => "10.02.2018 bugfix delete attr timeYearPeriod if set other time attributes, new 'changeValue' command ",
-  "7.9.0"  => "09.02.2018 new attribute 'avgTimeWeightMean' (time weight mean calculation), code review of selection routines, maxValue handle negative values correctly, one security second for correct create TimeArray in DbRep_normRelTime ",
-  "7.8.1"  => "04.02.2018 bugfix if IsDisabled (again), code review, bugfix last dataset is not selected if timestamp is fully set ('date time'), fix '\$runtime_string_next' = '\$runtime_string_next.999';' if \$runtime_string_next is part of sql-execute place holder AND contains date+time ",
-  "7.8.0"  => "04.02.2018 new command 'eraseReadings' ", 
-  "7.7.1"  => "03.02.2018 minor fix in DbRep_firstconnect if IsDisabled ",
-  "7.7.0"  => "29.01.2018 attribute 'averageCalcForm', calculation sceme 'avgDailyMeanGWS', 'avgArithmeticMean' for averageValue ",
-  "7.6.1"  => "27.01.2018 new attribute 'sqlCmdHistoryLength' and 'fetchMarkDuplicates' for highlighting multiple datasets by fetchrows ",
-  "7.5.3"  => "23.01.2018 new attribute 'ftpDumpFilesKeep', version management added to FTP-usage ",
-  "7.4.1"  => "14.01.2018 fix old dumpfiles not deleted by dumpMySQL clientSide ",
-  "7.4.0"  => "09.01.2018 dumpSQLite/restoreSQLite, backup/restore now available when DbLog-device has reopen xxxx running, executeBeforeDump executeAfterDump also available for optimizeTables, vacuum, restoreMySQL, restoreSQLite, attribute executeBeforeDump / executeAfterDump renamed to executeBeforeProc & executeAfterProc ",
-  "7.3.1"  => "08.01.2018 fix syntax error for perl < 5.20 ",
-  "7.3.0"  => "07.01.2018 charfilter avoid control characters in datasets to exportToFile / importFromFile, changed to use aggregation for split selects in timeslices by exportToFile (avoid heavy memory consumption) ",
-  "7.1.0"  => "22.12.2017 new attribute timeYearPeriod for reports correspondig to e.g. electricity billing, bugfix connection check is running after restart allthough dev is disabled ",
-  "6.4.1"  => "13.12.2017 new Attribute 'sqlResultFieldSep' for field separate options of sqlCmd result ",
-  "6.4.0"  => "10.12.2017 prepare module for usage of datetime picker widget (Forum:#35736) ",
-  "6.1.0"  => "29.11.2017 new command delSeqDoublets (adviceRemain,adviceDelete), add Option to LASTCMD ",
-  "6.0.0"  => "18.11.2017 FTP transfer dumpfile after dump, delete old dumpfiles within Blockingcall (avoid freezes) commandref revised, minor fixes ",
-  "5.6.4"  => "05.10.2017 abortFn's adapted to use abortArg (Forum:77472) ",
-  "5.6.3"  => "01.10.2017 fix crash of fhem due to wrong rmday-calculation if month is changed, Forum:#77328 ",
-  "5.6.0"  => "17.07.2017 default timeout changed to 86400, new get-command 'procinfo' (MySQL) ",
-  "5.4.0"  => "03.07.2017 restoreMySQL - restore of csv-files (from dumpServerSide), RestoreRowsHistory/ DumpRowsHistory, Commandref revised ",
-  "5.3.1"  => "28.06.2017 vacuum for SQLite added, readings enhanced for optimizeTables / vacuum, commandref revised ",
-  "5.3.0"  => "26.06.2017 change of DbRep_mysqlOptimizeTables, new command optimizeTables ",
-  "5.0.6"  => "13.06.2017 add Aria engine to DbRep_mysqlOptimizeTables ",
-  "5.0.3"  => "07.06.2017 mysql_DoDumpServerSide added ",
-  "5.0.1"  => "05.06.2017 dependencies between dumpMemlimit and dumpSpeed created, enhanced verbose 5 logging ",
-  "5.0.0"  => "04.06.2017 MySQL Dump nonblocking added ",
+  "7.9.0"   => "09.02.2018 new attribute 'avgTimeWeightMean' (time weight mean calculation), code review of selection routines, maxValue handle negative values correctly, one security second for correct create TimeArray in DbRep_normRelTime ",
+  "7.8.1"   => "04.02.2018 bugfix if IsDisabled (again), code review, bugfix last dataset is not selected if timestamp is fully set ('date time'), fix '\$runtime_string_next' = '\$runtime_string_next.999';' if \$runtime_string_next is part of sql-execute place holder AND contains date+time ",
+  "7.8.0"   => "04.02.2018 new command 'eraseReadings' ", 
+  "7.7.1"   => "03.02.2018 minor fix in DbRep_firstconnect if IsDisabled ",
+  "7.7.0"   => "29.01.2018 attribute 'averageCalcForm', calculation sceme 'avgDailyMeanGWS', 'avgArithmeticMean' for averageValue ",
+  "7.6.1"   => "27.01.2018 new attribute 'sqlCmdHistoryLength' and 'fetchMarkDuplicates' for highlighting multiple datasets by fetchrows ",
+  "7.5.3"   => "23.01.2018 new attribute 'ftpDumpFilesKeep', version management added to FTP-usage ",
+  "7.4.1"   => "14.01.2018 fix old dumpfiles not deleted by dumpMySQL clientSide ",
+  "7.4.0"   => "09.01.2018 dumpSQLite/restoreSQLite, backup/restore now available when DbLog-device has reopen xxxx running, executeBeforeDump executeAfterDump also available for optimizeTables, vacuum, restoreMySQL, restoreSQLite, attribute executeBeforeDump / executeAfterDump renamed to executeBeforeProc & executeAfterProc ",
+  "7.3.1"   => "08.01.2018 fix syntax error for perl < 5.20 ",
+  "7.3.0"   => "07.01.2018 charfilter avoid control characters in datasets to exportToFile / importFromFile, changed to use aggregation for split selects in timeslices by exportToFile (avoid heavy memory consumption) ",
+  "7.1.0"   => "22.12.2017 new attribute timeYearPeriod for reports correspondig to e.g. electricity billing, bugfix connection check is running after restart allthough dev is disabled ",
+  "6.4.1"   => "13.12.2017 new Attribute 'sqlResultFieldSep' for field separate options of sqlCmd result ",
+  "6.4.0"   => "10.12.2017 prepare module for usage of datetime picker widget (Forum:#35736) ",
+  "6.1.0"   => "29.11.2017 new command delSeqDoublets (adviceRemain,adviceDelete), add Option to LASTCMD ",
+  "6.0.0"   => "18.11.2017 FTP transfer dumpfile after dump, delete old dumpfiles within Blockingcall (avoid freezes) commandref revised, minor fixes ",
+  "5.6.4"   => "05.10.2017 abortFn's adapted to use abortArg (Forum:77472) ",
+  "5.6.3"   => "01.10.2017 fix crash of fhem due to wrong rmday-calculation if month is changed, Forum:#77328 ",
+  "5.6.0"   => "17.07.2017 default timeout changed to 86400, new get-command 'procinfo' (MySQL) ",
+  "5.4.0"   => "03.07.2017 restoreMySQL - restore of csv-files (from dumpServerSide), RestoreRowsHistory/ DumpRowsHistory, Commandref revised ",
+  "5.3.1"   => "28.06.2017 vacuum for SQLite added, readings enhanced for optimizeTables / vacuum, commandref revised ",
+  "5.3.0"   => "26.06.2017 change of DbRep_mysqlOptimizeTables, new command optimizeTables ",
+  "5.0.6"   => "13.06.2017 add Aria engine to DbRep_mysqlOptimizeTables ",
+  "5.0.3"   => "07.06.2017 mysql_DoDumpServerSide added ",
+  "5.0.1"   => "05.06.2017 dependencies between dumpMemlimit and dumpSpeed created, enhanced verbose 5 logging ",
+  "5.0.0"   => "04.06.2017 MySQL Dump nonblocking added ",
   "4.16.1"  => "22.05.2017 encode json without JSON module, requires at least fhem.pl 14348 2017-05-22 20:25:06Z ",
   "4.14.1"  => "16.05.2017 limitation of fetchrows result datasets to 1000 by attr limit ",
   "4.14.0"  => "15.05.2017 UserExitFn added as separate sub (DbRep_userexit) and attr userExitFn defined, new subs ReadingsBulkUpdateTimeState, ReadingsBulkUpdateValue, ReadingsSingleUpdateValue, commandref revised ",
@@ -235,46 +295,46 @@ our %DbRep_vNotesExtern = (
   "4.12.0"  => "31.03.2017 support of primary key for insert functions ",
   "4.11.3"  => "26.03.2017 usage of daylight saving time changed to avoid wrong selection when wintertime switch to summertime, minor bug fixes ",
   "4.11.0"  => "18.02.2017 added [current|previous]_[month|week|day|hour]_begin and [current|previous]_[month|week|day|hour]_end as options of timestamp ",
-  "4.9.0"  => "23.12.2016 function readingRename added ",
-  "4.8.6"  => "17.12.2016 new bugfix group by-clause due to incompatible changes made in MyQL 5.7.5 (Forum #msg541103) ",
-  "4.8.5"  => "16.12.2016 bugfix group by-clause due to Forum #msg540610 ",
-  "4.7.6"  => "07.12.2016 DbRep version as internal, check if perl module DBI is installed ",
-  "4.7.4"  => "28.11.2016 sub DbRep_calcount changed due to Forum #msg529312 ",
-  "4.7.3"  => "20.11.2016 new diffValue function made suitable to SQLite ",
-  "4.6.0"  => "31.10.2016 bugfix calc issue due to daylight saving time end (winter time) ",
-  "4.5.1"  => "18.10.2016 get svrinfo contains SQLite database file size (MB), modified timeout routine ",
-  "4.2.0"  => "10.10.2016 allow SQL-Wildcards in attr reading & attr device ",
-  "4.1.3"  => "09.10.2016 bugfix delEntries running on SQLite ",
+  "4.9.0"   => "23.12.2016 function readingRename added ",
+  "4.8.6"   => "17.12.2016 new bugfix group by-clause due to incompatible changes made in MyQL 5.7.5 (Forum #msg541103) ",
+  "4.8.5"   => "16.12.2016 bugfix group by-clause due to Forum #msg540610 ",
+  "4.7.6"   => "07.12.2016 DbRep version as internal, check if perl module DBI is installed ",
+  "4.7.4"   => "28.11.2016 sub DbRep_calcount changed due to Forum #msg529312 ",
+  "4.7.3"   => "20.11.2016 new diffValue function made suitable to SQLite ",
+  "4.6.0"   => "31.10.2016 bugfix calc issue due to daylight saving time end (winter time) ",
+  "4.5.1"   => "18.10.2016 get svrinfo contains SQLite database file size (MB), modified timeout routine ",
+  "4.2.0"   => "10.10.2016 allow SQL-Wildcards in attr reading & attr device ",
+  "4.1.3"   => "09.10.2016 bugfix delEntries running on SQLite ",
   "3.13.0"  => "03.10.2016 added deviceRename to rename devices in database, new Internal DATABASE ",
   "3.12.0"  => "02.10.2016 function minValue added ",
   "3.11.1"  => "30.09.2016 bugfix include first and next day in calculation if Timestamp is exactly 'YYYY-MM-DD 00:00:00' ",
-  "3.9.0"  => "26.09.2016 new function importFromFile to import data from file (CSV format) ",
-  "3.8.0"  => "16.09.2016 new attr readingPreventFromDel to prevent readings from deletion when a new operation starts ",
-  "3.7.2"  => "04.09.2016 problem in diffValue fixed if if no value was selected ",
-  "3.7.1"  => "31.08.2016 Reading 'errortext' added, commandref continued, exportToFile changed, diffValue changed to fix wrong timestamp if error occur ",
-  "3.7.0"  => "30.08.2016 exportToFile added exports data to file (CSV format) ",
-  "3.5.0"  => "18.08.2016 new attribute timeOlderThan ",
-  "3.4.4"  => "12.08.2016 current_year_begin, previous_year_begin, current_year_end, previous_year_end added as possible values for timestamp attribute ",
-  "3.4.0"  => "03.08.2016 function 'insert' added ",
-  "3.3.1"  => "15.07.2016 function 'diffValue' changed, write '-' if no value ",
-  "3.3.0"  => "12.07.2016 function 'diffValue' added ",
-  "3.1.1"  => "10.07.2016 state turns to initialized and connected after attr 'disabled' is switched from '1' to '0' ",
-  "3.1.0"  => "09.07.2016 new Attr 'timeDiffToNow' and change subs according to that ",
-  "3.0.0"  => "04.07.2016 no selection if timestamp isn't set and aggregation isn't set with fetchrows, delEntries ",
-  "2.9.8"  => "01.07.2016 changed fetchrows_ParseDone to handle readingvalues with whitespaces correctly ",
-  "2.9.5"  => "30.06.2016 format of readingnames changed again (substitute ':' with '-' in time) ",
-  "2.9.4"  => "30.06.2016 change readingmap to readingNameMap, prove of unsupported characters added ",
-  "2.9.3"  => "27.06.2016 format of readingnames changed avoiding some problems after restart and splitting ",
-  "2.9.0"  => "25.06.2016 attributes showproctime, timeout added ",
-  "2.8.0"  => "24.06.2016 function averageValue changed to nonblocking function ",
-  "2.7.0"  => "23.06.2016 changed function countEntries to nonblocking ",
-  "2.6.2"  => "21.06.2016 aggregation week corrected ",
-  "2.6.1"  => "20.06.2016 routine maxval_ParseDone corrected ",
-  "2.6.0"  => "31.05.2016 maxValue changed to nonblocking function ",
-  "2.4.0"  => "29.05.2016 changed to nonblocking function for sumValue ",
-  "2.0.0"  => "24.05.2016 added nonblocking function for fetchrow ",
-  "1.2.0"  => "21.05.2016 function and attribute for delEntries added ",
-  "1.0.0"  => "19.05.2016 Initial"
+  "3.9.0"   => "26.09.2016 new function importFromFile to import data from file (CSV format) ",
+  "3.8.0"   => "16.09.2016 new attr readingPreventFromDel to prevent readings from deletion when a new operation starts ",
+  "3.7.2"   => "04.09.2016 problem in diffValue fixed if if no value was selected ",
+  "3.7.1"   => "31.08.2016 Reading 'errortext' added, commandref continued, exportToFile changed, diffValue changed to fix wrong timestamp if error occur ",
+  "3.7.0"   => "30.08.2016 exportToFile added exports data to file (CSV format) ",
+  "3.5.0"   => "18.08.2016 new attribute timeOlderThan ",
+  "3.4.4"   => "12.08.2016 current_year_begin, previous_year_begin, current_year_end, previous_year_end added as possible values for timestamp attribute ",
+  "3.4.0"   => "03.08.2016 function 'insert' added ",
+  "3.3.1"   => "15.07.2016 function 'diffValue' changed, write '-' if no value ",
+  "3.3.0"   => "12.07.2016 function 'diffValue' added ",
+  "3.1.1"   => "10.07.2016 state turns to initialized and connected after attr 'disabled' is switched from '1' to '0' ",
+  "3.1.0"   => "09.07.2016 new Attr 'timeDiffToNow' and change subs according to that ",
+  "3.0.0"   => "04.07.2016 no selection if timestamp isn't set and aggregation isn't set with fetchrows, delEntries ",
+  "2.9.8"   => "01.07.2016 changed fetchrows_ParseDone to handle readingvalues with whitespaces correctly ",
+  "2.9.5"   => "30.06.2016 format of readingnames changed again (substitute ':' with '-' in time) ",
+  "2.9.4"   => "30.06.2016 change readingmap to readingNameMap, prove of unsupported characters added ",
+  "2.9.3"   => "27.06.2016 format of readingnames changed avoiding some problems after restart and splitting ",
+  "2.9.0"   => "25.06.2016 attributes showproctime, timeout added ",
+  "2.8.0"   => "24.06.2016 function averageValue changed to nonblocking function ",
+  "2.7.0"   => "23.06.2016 changed function countEntries to nonblocking ",
+  "2.6.2"   => "21.06.2016 aggregation week corrected ",
+  "2.6.1"   => "20.06.2016 routine maxval_ParseDone corrected ",
+  "2.6.0"   => "31.05.2016 maxValue changed to nonblocking function ",
+  "2.4.0"   => "29.05.2016 changed to nonblocking function for sumValue ",
+  "2.0.0"   => "24.05.2016 added nonblocking function for fetchrow ",
+  "1.2.0"   => "21.05.2016 function and attribute for delEntries added ",
+  "1.0.0"   => "19.05.2016 Initial"
 );
 
 # Hint Hash en
@@ -299,6 +359,7 @@ our %DbRep_vHintsExt_de = (
   "1" => "Hilfreiche Hinweise zu DbRep im <a href=\"https://wiki.fhem.de/wiki/DbRep_-_Reporting_und_Management_von_DbLog-Datenbankinhalten#Praxisbeispiele_.2F_Hinweise_und_L.C3.B6sungsans.C3.A4tze_f.C3.BCr_verschiedene_Aufgaben\">FHEM-Wiki</a>."
 );
 
+# foreward declaration
 sub DbRep_Main($$;$);
 sub DbLog_cutCol($$$$$$$);           # DbLog-Funktion nutzen um Daten auf maximale Länge beschneiden
 
@@ -314,6 +375,7 @@ sub DbRep_Initialize($) {
  my ($hash) = @_;
  $hash->{DefFn}        = "DbRep_Define";
  $hash->{UndefFn}      = "DbRep_Undef";
+ $hash->{DeleteFn}     = "DbRep_Delete";
  $hash->{ShutdownFn}   = "DbRep_Shutdown"; 
  $hash->{NotifyFn}     = "DbRep_Notify";
  $hash->{SetFn}        = "DbRep_Set";
@@ -340,6 +402,7 @@ sub DbRep_Initialize($) {
                        "fastStart:1,0 ".
 					   "fetchRoute:ascent,descent ".
                        "fetchMarkDuplicates:red,blue,brown,green,orange ".
+                       "fetchValueFn:textField-long ".
 					   "ftpDebug:1,0 ".
 					   "ftpDir ".
                        "ftpDumpFilesKeep:1,2,3,4,5,6,7,8,9,10 ".
@@ -374,6 +437,7 @@ sub DbRep_Initialize($) {
                        "timeDiffToNow ".
                        "timeOlderThan ".
                        "timeout ".
+                       "useAdminCredentials:1,0 ".
 					   "userExitFn ".
                        "valueFilter ".
                        $readingFnAttributes;
@@ -459,8 +523,8 @@ sub DbRep_Set($@) {
   my $prop1          = $a[3];
   my $dbh            = $hash->{DBH};
   my $dblogdevice    = $hash->{HELPER}{DBLOGDEVICE};
-  $hash->{dbloghash} = $defs{$dblogdevice};
-  my $dbmodel        = $hash->{dbloghash}{MODEL};
+  my $dbloghash      = $defs{$hash->{HELPER}{DBLOGDEVICE}};
+  my $dbmodel        = $dbloghash->{MODEL};
   my $dbname         = $hash->{DATABASE};
   my $sd ="";
   
@@ -491,34 +555,35 @@ sub DbRep_Set($@) {
   
   my $setlist = "Unknown argument $opt, choose one of ".
                 "eraseReadings:noArg ".
-                (($hash->{ROLE} ne "Agent")?"sumValue:display,writeToDB ":"").
-                (($hash->{ROLE} ne "Agent")?"averageValue:display,writeToDB ":"").
+                (($hash->{ROLE} ne "Agent")?"sumValue:display,writeToDB,writeToDBSingle ":"").
+                (($hash->{ROLE} ne "Agent")?"averageValue:display,writeToDB,writeToDBSingle ":"").
                 (($hash->{ROLE} ne "Agent")?"changeValue ":"").
                 (($hash->{ROLE} ne "Agent")?"delDoublets:adviceDelete,delete ":"").
-                (($hash->{ROLE} ne "Agent")?"delEntries:noArg ":"").
+                (($hash->{ROLE} ne "Agent")?"delEntries ":"").
 				(($hash->{ROLE} ne "Agent")?"delSeqDoublets:adviceRemain,adviceDelete,delete ":"").
                 "deviceRename ".
 				(($hash->{ROLE} ne "Agent")?"readingRename ":"").
                 (($hash->{ROLE} ne "Agent")?"exportToFile ":"").
                 (($hash->{ROLE} ne "Agent")?"importFromFile ":"").
-                (($hash->{ROLE} ne "Agent")?"maxValue:display,writeToDB ":"").
-                (($hash->{ROLE} ne "Agent")?"minValue:display,writeToDB ":"").
+                (($hash->{ROLE} ne "Agent")?"maxValue:display,writeToDB,deleteOther ":"").
+                (($hash->{ROLE} ne "Agent")?"minValue:display,writeToDB,deleteOther ":"").
                 (($hash->{ROLE} ne "Agent")?"fetchrows:history,current ":"").  
                 (($hash->{ROLE} ne "Agent")?"diffValue:display,writeToDB ":"").   
                 (($hash->{ROLE} ne "Agent")?"index:list_all,recreate_Search_Idx,drop_Search_Idx,recreate_Report_Idx,drop_Report_Idx ":"").
+                (($hash->{ROLE} ne "Agent" && $dbmodel =~ /MYSQL/)?"adminCredentials ":"").
                 (($hash->{ROLE} ne "Agent")?"insert ":"").
                 (($hash->{ROLE} ne "Agent")?"reduceLog ":"").
                 (($hash->{ROLE} ne "Agent")?"sqlCmd:textField-long ":"").
                 (($hash->{ROLE} ne "Agent" && $hl)?"sqlCmdHistory:".$hl." ":"").
-                (($hash->{ROLE} ne "Agent")?"sqlSpecial:50mostFreqLogsLast2days,allDevCount,allDevReadCount ":"").
+                (($hash->{ROLE} ne "Agent")?"sqlSpecial:50mostFreqLogsLast2days,allDevCount,allDevReadCount,recentReadingsOfDevice".(($dbmodel eq "MYSQL")?",readingsDifferenceByTimeDelta":"")." ":"").
                 (($hash->{ROLE} ne "Agent")?"syncStandby ":"").
 				(($hash->{ROLE} ne "Agent")?"tableCurrentFillup:noArg ":"").
 				(($hash->{ROLE} ne "Agent")?"tableCurrentPurge:noArg ":"").
-				(($hash->{ROLE} ne "Agent" && $dbmodel =~ /MYSQL/ )?"dumpMySQL:clientSide,serverSide ":"").
-                (($hash->{ROLE} ne "Agent" && $dbmodel =~ /SQLITE/ )?"dumpSQLite:noArg ":"").
-                (($hash->{ROLE} ne "Agent" && $dbmodel =~ /SQLITE/ )?"repairSQLite ":"").
-				(($hash->{ROLE} ne "Agent" && $dbmodel =~ /MYSQL/ )?"optimizeTables:noArg ":"").
-				(($hash->{ROLE} ne "Agent" && $dbmodel =~ /SQLITE|POSTGRESQL/ )?"vacuum:noArg ":"").
+				(($hash->{ROLE} ne "Agent" && $dbmodel =~ /MYSQL/)?"dumpMySQL:clientSide,serverSide ":"").
+                (($hash->{ROLE} ne "Agent" && $dbmodel =~ /SQLITE/)?"dumpSQLite:noArg ":"").
+                (($hash->{ROLE} ne "Agent" && $dbmodel =~ /SQLITE/)?"repairSQLite ":"").
+				(($hash->{ROLE} ne "Agent" && $dbmodel =~ /MYSQL/)?"optimizeTables:noArg ":"").
+				(($hash->{ROLE} ne "Agent" && $dbmodel =~ /SQLITE|POSTGRESQL/)?"vacuum:noArg ":"").
 				(($hash->{ROLE} ne "Agent" && $dbmodel =~ /MYSQL/)?"restoreMySQL:".$cj." ":"").
                 (($hash->{ROLE} ne "Agent" && $dbmodel =~ /SQLITE/)?"restoreSQLite:".$cj." ":"").
                 (($hash->{ROLE} ne "Agent")?"countEntries:history,current ":"");
@@ -527,8 +592,7 @@ sub DbRep_Set($@) {
     
   if ($opt =~ /eraseReadings/) {
        $hash->{LASTCMD} = $prop?"$opt $prop":"$opt";
-       # Readings löschen die nicht in der Ausnahmeliste (Attr readingPreventFromDel) stehen
-       DbRep_delread($hash);
+       DbRep_delread($hash);                             # Readings löschen die nicht in der Ausnahmeliste (Attr readingPreventFromDel) stehen
        return undef;
   }
   
@@ -543,7 +607,6 @@ sub DbRep_Set($@) {
            Log3 ($name, 3, "DbRep $name - ###             New database clientSide dump                 ###");
            Log3 ($name, 3, "DbRep $name - ################################################################");
 	   }
-	   # Befehl vor Procedure ausführen
        DbRep_beforeproc($hash, "dump");
 	   DbRep_Main($hash,$opt,$prop);
        return undef;
@@ -554,7 +617,6 @@ sub DbRep_Set($@) {
        Log3 ($name, 3, "DbRep $name - ################################################################");
        Log3 ($name, 3, "DbRep $name - ###                    New SQLite dump                       ###");
        Log3 ($name, 3, "DbRep $name - ################################################################"); 
-	   # Befehl vor Procedure ausführen
        DbRep_beforeproc($hash, "dump");
 	   DbRep_Main($hash,$opt,$prop);
        return undef;
@@ -564,7 +626,6 @@ sub DbRep_Set($@) {
        $prop = $prop?$prop:36000;
        if($prop) {
            unless($prop =~ /^(\d+)$/) { return " The Value of $opt is not valid. Use only figures 0-9 without decimal places !";};
-           # unless ($aVal =~ /^[0-9]+$/) { return " The Value of $aName is not valid. Use only figures 0-9 without decimal places !";}
        }
        $hash->{LASTCMD} = $prop?"$opt $prop":"$opt";
        Log3 ($name, 3, "DbRep $name - ################################################################");
@@ -572,11 +633,9 @@ sub DbRep_Set($@) {
        Log3 ($name, 3, "DbRep $name - ################################################################"); 
        Log3 ($name, 3, "DbRep $name - start repair attempt of database ".$hash->{DATABASE}); 
        # closetime Datenbank
-       my $dbloghash = $hash->{dbloghash};
        my $dbl = $dbloghash->{NAME};
        CommandSet(undef,"$dbl reopen $prop");
        
-	   # Befehl vor Procedure ausführen
        DbRep_beforeproc($hash, "repair");
 	   DbRep_Main($hash,$opt);
        return undef;
@@ -587,7 +646,6 @@ sub DbRep_Set($@) {
        Log3 ($name, 3, "DbRep $name - ################################################################");
        Log3 ($name, 3, "DbRep $name - ###             New database Restore/Recovery                ###");
        Log3 ($name, 3, "DbRep $name - ################################################################");
-	   # Befehl vor Procedure ausführen
        DbRep_beforeproc($hash, "restore");
 	   DbRep_Main($hash,$opt,$prop);
        return undef;
@@ -598,7 +656,6 @@ sub DbRep_Set($@) {
        Log3 ($name, 3, "DbRep $name - ################################################################");
        Log3 ($name, 3, "DbRep $name - ###          New optimize table / vacuum execution           ###");
        Log3 ($name, 3, "DbRep $name - ################################################################");
-	   # Befehl vor Procedure ausführen
        DbRep_beforeproc($hash, "optimize");	   
 	   DbRep_Main($hash,$opt);
        return undef;
@@ -626,7 +683,6 @@ sub DbRep_Set($@) {
           Log3 ($name, 3, "DbRep $name - ################################################################");
           Log3 ($name, 3, "DbRep $name - ###                    new reduceLog run                     ###");
           Log3 ($name, 3, "DbRep $name - ################################################################");
-          # Befehl vor Procedure ausführen
           DbRep_beforeproc($hash, "reduceLog");	   
           DbRep_Main($hash,$opt);
           return undef;
@@ -689,11 +745,22 @@ sub DbRep_Set($@) {
        return undef;
   }
   
+  if ($opt eq "adminCredentials" && $hash->{ROLE} ne "Agent") {
+      return "Credentials are incomplete, use username password" if (!$prop || !$prop1);        
+      my $success = DbRep_setcredentials($hash,"adminCredentials",$prop,$prop1);
+	  
+	  if($success) {
+		  return "Username and password for database root access saved successfully";
+	  } else {
+		  return "Error while saving username / password - see logfile for details";
+	  }		
+  }
+  
   #######################################################################################################
   ##        keine Aktionen außer die über diesem Eintrag solange Reopen xxxx im DbLog-Device läuft
   #######################################################################################################
-  if ($hash->{dbloghash}{HELPER}{REOPEN_RUNS} && $opt !~ /\?/) {
-      my $ro = $hash->{dbloghash}{HELPER}{REOPEN_RUNS_UNTIL};
+  if ($dbloghash->{HELPER}{REOPEN_RUNS} && $opt !~ /\?/) {
+      my $ro = $dbloghash->{HELPER}{REOPEN_RUNS_UNTIL};
       Log3 ($name, 3, "DbRep $name - connection $dblogdevice to db $dbname is closed until $ro - $opt postponed");
 	  ReadingsSingleUpdateValue ($hash, "state", "connection $dblogdevice to $dbname is closed until $ro - $opt postponed", 1);
 	  return;
@@ -715,6 +782,9 @@ sub DbRep_Set($@) {
       if (!AttrVal($hash->{NAME}, "reading", "")) {
           return " The attribute reading to analyze is not set !";
       }
+      if ($prop && $prop =~ /deleteOther/ && !AttrVal($hash->{NAME}, "allowDeletion", 0)) {
+          return " Set attribute 'allowDeletion' if you want to allow deletion of any database entries. Use it with care !";
+      } 
       if ($prop && $prop =~ /writeToDB/) {
           if (!AttrVal($hash->{NAME}, "device", "") || AttrVal($hash->{NAME}, "device", "") =~ /[%*:=,]/ || AttrVal($hash->{NAME}, "reading", "") =~ /[,\s]/) {
               return "<html>If you want write results back to database, attributes \"device\" and \"reading\" must be set.<br>
@@ -730,13 +800,15 @@ sub DbRep_Set($@) {
       if (!AttrVal($hash->{NAME}, "allowDeletion", undef)) {
           return " Set attribute 'allowDeletion' if you want to allow deletion of any database entries. Use it with care !";
       }      
+	  delete $hash->{HELPER}{DELENTRIES};
+	  $hash->{HELPER}{DELENTRIES} = \@a;
       DbRep_beforeproc($hash, "delEntries");      
       DbRep_Main($hash,$opt);
       
   } elsif ($opt eq "deviceRename") {
       shift @a;
       shift @a;
-      $prop = join(" ",@a);      # Device Name kann Leerzeichen enthalten
+      $prop = join(" ",@a);                                                     # Device Name kann Leerzeichen enthalten
       my ($olddev, $newdev) = split(",",$prop);
       $hash->{LASTCMD} = $prop?"$opt $prop":"$opt";    
       if (!$olddev || !$newdev) {return "Both entries \"old device name\", \"new device name\" are needed. Use \"set $name deviceRename olddevname,newdevname\" ";}
@@ -746,6 +818,9 @@ sub DbRep_Set($@) {
       DbRep_Main($hash,$opt);
       
   } elsif ($opt eq "readingRename") {
+      shift @a;
+      shift @a;
+      $prop = join(" ",@a);                                                     # Readingname kann Leerzeichen enthalten
       $hash->{LASTCMD} = $prop?"$opt $prop":"$opt";
       my ($oldread, $newread) = split(",",$prop);
       if (!$oldread || !$newread) {return "Both entries \"old reading name\", \"new reading name\" are needed. Use \"set $name readingRename oldreadingname,newreadingname\" ";}
@@ -824,7 +899,6 @@ sub DbRep_Set($@) {
       
   } elsif ($opt =~ /sqlCmd|sqlSpecial|sqlCmdHistory/) {
       return "\"set $opt\" needs at least an argument" if ( @a < 3 );
-      # remove arg 0, 1 to get SQL command
       my $sqlcmd;
       if($opt eq "sqlSpecial") {
           $sqlcmd = $prop;
@@ -833,15 +907,20 @@ sub DbRep_Set($@) {
           my @cmd = @a;
           shift @cmd; shift @cmd;
           $sqlcmd = join(" ", @cmd);
-          $sqlcmd =~ tr/ A-Za-z0-9!"#$§%&'()*+,-.\/:;<=>?@[\\]^_`{|}~äöüÄÖÜß€/ /cs;
+          @cmd    = split(/\s/, $sqlcmd);
+		  $sqlcmd = join(" ", @cmd);
+		  # $sqlcmd =~ tr/ A-Za-z0-9!"#$§%&'()*+,-.\/:;<=>?@[\\]^_`{|}~äöüÄÖÜß€/ /cs;    # V8.36.0 20.03.2020
       }
       if($opt eq "sqlCmdHistory") {
-          $prop =~ tr/ A-Za-z0-9!"#$%&'()*+,-.\/:;<=>?@[\\]^_`{|}~äöüÄÖÜß€/ /cs;
-          $prop =~ s/<c>/,/g;          
+          $prop =~ s/§/_ESC_ECS_/g; 
+          $prop =~ tr/ A-Za-z0-9!"#%&'()*+,-.\/:;<=>?@[\\]^_`{|}~äöüÄÖÜß€/ /cs;
+          $prop =~ s/_ESC_ECS_/§/g;
+          $prop =~ s/<c>/,/g;                                                        # noch aus Kompatibilitätsgründen enthalten
+          $prop =~ s/(\x20)*\xbc/,/g;                                                # Forum: https://forum.fhem.de/index.php/topic,103908.0.html                   
           $sqlcmd = $prop;
           if($sqlcmd eq "___purge_historylist___") {
               delete($hash->{HELPER}{SQLHIST});
-              DbRep_setCmdFile($name."_sqlCmdList","",$hash);         # Löschen der sql History Liste im DbRep-Keyfile
+              DbRep_setCmdFile($name."_sqlCmdList","",$hash);                        # Löschen der sql History Liste im DbRep-Keyfile
               return "SQL command historylist of $name deleted.";
           }
       }
@@ -903,20 +982,21 @@ return undef;
 sub DbRep_Get($@) {
   my ($hash, @a) = @_;
   return "\"get X\" needs at least an argument" if ( @a < 2 );
-  my $name    = $a[0];
-  my $opt     = $a[1];
-  my $prop    = $a[2];
-  my $dbh     = $hash->{DBH};
-  my $dblogdevice    = $hash->{HELPER}{DBLOGDEVICE};
-  $hash->{dbloghash} = $defs{$dblogdevice};
-  my $dbmodel = $hash->{dbloghash}{MODEL};
-  my $dbname  = $hash->{DATABASE};
-  my $to      = AttrVal($name, "timeout", "86400");
+  my $name        = $a[0];
+  my $opt         = $a[1];
+  my $prop        = $a[2];
+  my $dbh         = $hash->{DBH};
+  my $dblogdevice = $hash->{HELPER}{DBLOGDEVICE};
+  my $dbloghash   = $defs{$hash->{HELPER}{DBLOGDEVICE}};
+  my $dbmodel     = $dbloghash->{MODEL};
+  my $dbname      = $hash->{DATABASE};
+  my $to          = AttrVal($name, "timeout", "86400");
   
   my $getlist = "Unknown argument $opt, choose one of ".
                 "svrinfo:noArg ".
 				"blockinginfo:noArg ".
                 "minTimestamp:noArg ".
+                (($dbmodel =~ /MYSQL/)?"storedCredentials:noArg ":"").
                 "dbValue:textField-long ".
                 (($dbmodel eq "MYSQL")?"dbstatus:noArg ":"").
                 (($dbmodel eq "MYSQL")?"tableinfo:noArg ":"").
@@ -927,8 +1007,8 @@ sub DbRep_Get($@) {
   
   return if(IsDisabled($name));
   
-  if ($hash->{dbloghash}{HELPER}{REOPEN_RUNS} && $opt !~ /\?|procinfo|blockinginfo/) {
-      my $ro = $hash->{dbloghash}{HELPER}{REOPEN_RUNS_UNTIL};
+  if ($dbloghash->{HELPER}{REOPEN_RUNS} && $opt !~ /\?|procinfo|blockinginfo/) {
+      my $ro = $dbloghash->{HELPER}{REOPEN_RUNS_UNTIL};
       Log3 ($name, 3, "DbRep $name - connection $dblogdevice to db $dbname is closed until $ro - $opt postponed");
 	  ReadingsSingleUpdateValue ($hash, "state", "connection $dblogdevice to $dbname is closed until $ro - $opt postponed", 1);
 	  return;
@@ -967,7 +1047,6 @@ sub DbRep_Get($@) {
   
   } elsif ($opt =~ /dbValue/) {
       return "get \"$opt\" needs at least an argument" if ( @a < 3 );
-      # remove arg 0, 1 to get SQL command
       my @cmd = @a;
       shift @cmd; shift @cmd;
       my $sqlcmd = join(" ",@cmd);
@@ -979,7 +1058,31 @@ sub DbRep_Get($@) {
       my ($err,$ret) = DbRep_dbValue($name,$sqlcmd);
       return $err?$err:$ret;
   
-  } elsif ($opt =~ /versionNotes/) {
+  } elsif ($opt eq "storedCredentials") {
+        # Credentials abrufen
+        my $atxt;
+        my $username   = $defs{$defs{$name}->{HELPER}{DBLOGDEVICE}}->{dbuser};
+        my $dblogname  = $defs{$defs{$name}->{HELPER}{DBLOGDEVICE}}->{NAME};
+        my $password   = $attr{"sec$dblogname"}{secret};
+        my ($success,$admusername,$admpassword) = DbRep_getcredentials($hash,"adminCredentials");
+        if($success) {
+            $atxt = "Username: $admusername, Password: $admpassword\n";
+        } else {
+            $atxt = "Credentials of $name couldn't be read. Make sure you've set it with \"set $name adminCredentials username password\" (only valid for DbRep device type \"Client\")";        
+        }
+        
+        return "Stored Credentials for database default access:\n".
+               "===============================================\n".
+               "Username: $username, Password: $password\n".
+               "\n".
+               "\n".              
+               "Stored Credentials for database admin access:\n".
+               "=============================================\n".
+               $atxt.
+               "\n"
+               ;
+                
+    } elsif ($opt =~ /versionNotes/) {
 	  my $header  = "<b>Module release information</b><br>";
       my $header1 = "<b>Helpful hints</b><br>";
 	  my %hs;
@@ -1069,9 +1172,9 @@ return undef;
 ###################################################################################
 sub DbRep_Attr($$$$) {
   my ($cmd,$name,$aName,$aVal) = @_;
-  my $hash = $defs{$name};
-  $hash->{dbloghash} = $defs{$hash->{HELPER}{DBLOGDEVICE}};
-  my $dbmodel = $hash->{dbloghash}{MODEL};
+  my $hash      = $defs{$name};
+  my $dbloghash = $defs{$hash->{HELPER}{DBLOGDEVICE}};
+  my $dbmodel   = $dbloghash->{MODEL};
   my $do;
       
     # $cmd can be "del" or "set"
@@ -1113,6 +1216,7 @@ sub DbRep_Attr($$$$) {
                          timeDiffToNow
                          timeOlderThan
 						 sqlResultFormat
+                         useAdminCredentials
                          );
     
     if ($aName eq "disable") {
@@ -1140,6 +1244,21 @@ sub DbRep_Attr($$$$) {
             $hash->{HELPER}{RDPFDEL} = $aVal;
         } else {
             delete $hash->{HELPER}{RDPFDEL} if($hash->{HELPER}{RDPFDEL});
+        }
+    }
+    
+    if ($aName eq "fetchValueFn") {
+        if($cmd eq "set") {
+            my $VALUE = "Hello";
+            # Funktion aus Attr validieren
+            if( $aVal =~ m/^\s*(\{.*\})\s*$/s ) {
+                $aVal = $1;
+            } else {
+                $aVal = "";
+            }  
+            return "Your function does not match the form \"{<function>}\"" if(!$aVal);
+            eval $aVal;
+            return "Bad function: $@" if($@);
         }
     }
     
@@ -1191,6 +1310,11 @@ sub DbRep_Attr($$$$) {
         $hash->{MODEL} = $hash->{ROLE};
         delete($attr{$name}{icon}) if($do eq "Client");
     }
+    
+    if($aName eq "device") {
+        my $awdev = $aVal;
+        DbRep_modAssociatedWith ($hash,$cmd,$awdev);
+    }
                          
     if ($cmd eq "set") {
 		if ($aName =~ /valueFilter/) {
@@ -1199,7 +1323,16 @@ sub DbRep_Attr($$$$) {
         }
         
 		if ($aName =~ /seqDoubletsVariance/) {
-            unless (looks_like_number($aVal)) { return " The Value of $aName is not valid. Only figures are allowed !";}
+            my $edge = "";
+            if($aVal =~ /EDGE=/) {
+                ($aVal,$edge) = split("EDGE=", $aVal);
+                unless ($edge =~ /^balanced$|^negative$/i) { return " The parameter EDGE can only be \"balanced\" or \"negative\" !";}
+            }            
+            my ($varpos,$varneg) = split(" ", $aVal);
+            $varpos = DbRep_trim($varpos);
+            $varneg = $varpos if(!$varneg);
+            $varneg = DbRep_trim($varneg);
+            unless (looks_like_number($varpos) && looks_like_number($varneg)) { return " The Value of $aName is not valid. Only figures are allowed (except \"EDGE\") !";}
         }
         
 		if ($aName eq "timeYearPeriod") {
@@ -1225,16 +1358,16 @@ sub DbRep_Attr($$$$) {
                 return " The Value of $aName is out of range - $l[0]";
             }
             delete($attr{$name}{timestamp_begin}) if ($attr{$name}{timestamp_begin});
-            delete($attr{$name}{timestamp_end}) if ($attr{$name}{timestamp_end});
-            delete($attr{$name}{timeDiffToNow}) if ($attr{$name}{timeDiffToNow});
-            delete($attr{$name}{timeOlderThan}) if ($attr{$name}{timeOlderThan});
+            delete($attr{$name}{timestamp_end})   if ($attr{$name}{timestamp_end});
+            delete($attr{$name}{timeDiffToNow})   if ($attr{$name}{timeDiffToNow});
+            delete($attr{$name}{timeOlderThan})   if ($attr{$name}{timeOlderThan});
             return undef;
         }
         if ($aName eq "timestamp_begin" || $aName eq "timestamp_end") {
             my ($a,$b,$c) = split('_',$aVal);
             if ($a =~ /^current$|^previous$/ && $b =~ /^hour$|^day$|^week$|^month$|^year$/ && $c =~ /^begin$|^end$/) {
-                delete($attr{$name}{timeDiffToNow}) if ($attr{$name}{timeDiffToNow});
-                delete($attr{$name}{timeOlderThan}) if ($attr{$name}{timeOlderThan});
+                delete($attr{$name}{timeDiffToNow})  if ($attr{$name}{timeDiffToNow});
+                delete($attr{$name}{timeOlderThan})  if ($attr{$name}{timeOlderThan});
                 delete($attr{$name}{timeYearPeriod}) if ($attr{$name}{timeYearPeriod});
                 return undef;
             }
@@ -1250,8 +1383,8 @@ sub DbRep_Attr($$$$) {
                 my @l = split (/at/, $@);
                 return " The Value of $aName is out of range - $l[0]";
             }
-            delete($attr{$name}{timeDiffToNow}) if ($attr{$name}{timeDiffToNow});
-            delete($attr{$name}{timeOlderThan}) if ($attr{$name}{timeOlderThan});
+            delete($attr{$name}{timeDiffToNow})  if ($attr{$name}{timeDiffToNow});
+            delete($attr{$name}{timeOlderThan})  if ($attr{$name}{timeOlderThan});
             delete($attr{$name}{timeYearPeriod}) if ($attr{$name}{timeYearPeriod});
         }
 		if ($aName =~ /ftpTimeout|timeout|diffAccept/) {
@@ -1264,15 +1397,15 @@ sub DbRep_Attr($$$$) {
             unless ($aVal =~ /^[0-9]+$/ || $aVal =~ /^\s*[ydhms]:([\d]+)\s*/ && $aVal !~ /.*,.*/ )
 			    { return "The Value of \"$aName\" isn't valid. Set simple seconds like \"86400\" or use form like \"y:1 d:10 h:6 m:12 s:20\". Refer to commandref !";}
             delete($attr{$name}{timestamp_begin}) if ($attr{$name}{timestamp_begin});
-            delete($attr{$name}{timestamp_end}) if ($attr{$name}{timestamp_end});
-            delete($attr{$name}{timeYearPeriod}) if ($attr{$name}{timeYearPeriod});
+            delete($attr{$name}{timestamp_end})   if ($attr{$name}{timestamp_end});
+            delete($attr{$name}{timeYearPeriod})  if ($attr{$name}{timeYearPeriod});
         } 
 		if ($aName eq "timeOlderThan") {
             unless ($aVal =~ /^[0-9]+$/ || $aVal =~ /^\s*[ydhms]:([\d]+)\s*/ && $aVal !~ /.*,.*/ )
 			    { return "The Value of \"$aName\" isn't valid. Set simple seconds like \"86400\" or use form like \"y:1 d:10 h:6 m:12 s:20\". Refer to commandref !";}
             delete($attr{$name}{timestamp_begin}) if ($attr{$name}{timestamp_begin});
-            delete($attr{$name}{timestamp_end}) if ($attr{$name}{timestamp_end});
-            delete($attr{$name}{timeYearPeriod}) if ($attr{$name}{timeYearPeriod});
+            delete($attr{$name}{timestamp_end})   if ($attr{$name}{timestamp_end});
+            delete($attr{$name}{timeYearPeriod})  if ($attr{$name}{timeYearPeriod});
         }
 		if ($aName eq "dumpMemlimit" || $aName eq "dumpSpeed") {
             unless ($aVal =~ /^[0-9]+$/) { return "The Value of $aName is not valid. Use only figures 0-9 without decimal places.";}
@@ -1291,6 +1424,13 @@ sub DbRep_Attr($$$$) {
 		if ($aName eq "ftpUseSSL") {
             delete($attr{$name}{ftpUse});
         }
+        
+        if ($aName eq "useAdminCredentials" && $aVal) {
+            my ($success,$admusername,$admpassword) = DbRep_getcredentials($hash,"adminCredentials");
+            unless ($success) {return "The credentials of a database admin user couldn't be read. ".
+                                      "Make shure you have set them with command \"set $name adminCredentials <user> <password>\" before. ";}
+        }
+        
 		if ($aName eq "reading" || $aName eq "device") {
             if ($aVal !~ m/,/ && $dbmodel && $dbmodel ne 'SQLITE') {
                 my $attrname = uc($aName);
@@ -1325,9 +1465,10 @@ sub DbRep_Notify($$) {
      $event = "" if(!defined($event));
      my @evl = split("[ \t][ \t]*", $event);
      
-#    if ($devName = $myName && $evl[0] =~ /done/) {
-#      InternalTimer(time+1, "browser_refresh", $own_hash, 0);
-#    }
+     if($event =~ /DELETED/) {
+         my $awdev = AttrVal($own_hash->{NAME}, "device", "");
+         DbRep_modAssociatedWith ($own_hash,"set",$awdev);
+     }
      
      if ($own_hash->{ROLE} eq "Agent") {
 	     # wenn Rolle "Agent" Verbeitung von RENAMED Events
@@ -1335,7 +1476,7 @@ sub DbRep_Notify($$) {
          
          my $strucChanged;
          # altes in neues device in der DEF des angeschlossenen DbLog-device ändern (neues device loggen)
-         my $dblog_name = $own_hash->{dbloghash}{NAME};            # Name des an den DbRep-Agenten angeschlossenen DbLog-Dev
+         my $dblog_name = $own_hash->{HELPER}{DBLOGDEVICE};            # Name des an den DbRep-Agenten angeschlossenen DbLog-Dev
          my $dblog_hash = $defs{$dblog_name};
          
          if ( $dblog_hash->{DEF} =~ m/( |\(|\|)$evl[1]( |\)|\||:)/ ) {
@@ -1397,6 +1538,27 @@ return undef;
 }
 
 ###################################################################################
+# Wenn ein Gerät in FHEM gelöscht wird, wird zuerst die Funktion 
+# X_Undef aufgerufen um offene Verbindungen zu schließen, 
+# anschließend wird die Funktion X_Delete aufgerufen. 
+# Funktion: Aufräumen von dauerhaften Daten, welche durch das 
+# Modul evtl. für dieses Gerät spezifisch erstellt worden sind. 
+# Es geht hier also eher darum, alle Spuren sowohl im laufenden 
+# FHEM-Prozess, als auch dauerhafte Daten bspw. im physikalischen 
+# Gerät zu löschen die mit dieser Gerätedefinition zu tun haben. 
+###################################################################################
+sub DbRep_Delete($$) {
+    my ($hash, $arg) = @_;
+    my $name = $hash->{NAME};
+    
+    # gespeicherte Credentials löschen
+    my $index = $hash->{TYPE}."_".$name."_adminCredentials";
+    setKeyValue($index, undef);
+    
+return undef;
+}
+
+###################################################################################
 # DbRep_Shutdown
 ###################################################################################
 sub DbRep_Shutdown($) {  
@@ -1417,12 +1579,11 @@ return undef;
 sub DbRep_firstconnect(@) {
   my ($string)     = @_;
   my ($name,$opt,$prop,$fret) = split("\\|", $string);
-  my $hash           = $defs{$name};
-  my $to             = AttrVal($name, "timeout", "86400");
-  $hash->{dbloghash} = $defs{$hash->{HELPER}{DBLOGDEVICE}};
-  my $dbloghash      = $hash->{dbloghash};
-  my $dbconn         = $dbloghash->{dbconn};
-  my $dbuser         = $dbloghash->{dbuser};
+  my $hash      = $defs{$name};
+  my $to        = AttrVal($name, "timeout", "86400");
+  my $dbloghash = $defs{$hash->{HELPER}{DBLOGDEVICE}};
+  my $dbconn    = $dbloghash->{dbconn};
+  my $dbuser    = $dbloghash->{dbuser};
   
   RemoveInternalTimer($hash, "DbRep_firstconnect");
   return if(IsDisabled($name));
@@ -1459,24 +1620,24 @@ sub DbRep_getInitData($) {
   my ($string)     = @_;
   my ($name,$opt,$prop,$fret) = split("\\|", $string);
   my $hash       = $defs{$name};
-  my $dbloghash  = $hash->{dbloghash};
+  my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
   my $dbconn     = $dbloghash->{dbconn};
   my $dbuser     = $dbloghash->{dbuser};
   my $dblogname  = $dbloghash->{NAME};
   my $dbmodel    = $dbloghash->{MODEL};
+  my $database   = $hash->{DATABASE};
   my $dbpassword = $attr{"sec$dblogname"}{secret};
   my $mintsdef   = "1970-01-01 01:00:00";
   my $idxstate   = "";
-  my ($dbh,$sql,$err,$mints);
+  my ($dbh,$sth,$sql,$err,$mints);
 
   # Background-Startzeit
   my $bst = [gettimeofday];
- 
-  eval { $dbh = DBI->connect("dbi:$dbconn", $dbuser, $dbpassword, { PrintError => 0, RaiseError => 1, AutoInactiveDestroy => 1 }); };
-  if ($@) {
-      $err = encode_base64($@,"");
-      Log3 ($name, 2, "DbRep $name - $@");
-      return "$name|''|''|$err";
+  
+  ($err,$dbh) = DbRep_dbConnect($name,0);
+  if ($err) {
+	  $err = encode_base64($err,"");
+	  return "$name|''|''|$err";
   }
  
   # SQL-Startzeit
@@ -1511,6 +1672,34 @@ sub DbRep_getInitData($) {
           }
       }
   }
+  
+  # effektive Userrechte in MYSQL ermitteln
+  my ($grants,@uniq);  
+  if($dbmodel =~ /MYSQL/) {
+      eval {$sth = $dbh->prepare("SHOW GRANTS FOR CURRENT_USER();"); $sth->execute();};
+      if($@) {
+          Log3($name, 2, "DbRep $name - WARNING - user rights couldn't be determined: ".$@);
+      } else {
+          my $row = "";
+          while (my @line = $sth->fetchrow_array()) {
+              foreach (@line) {
+                  next if($_!~/(\s+ON \*\.\*\s+|\s+ON `$database`)/ );
+                  $row .= "," if($row); 
+                  $row .= (split(" ON ",(split("GRANT ",$_,2))[1],2))[0];                 
+              }
+          }
+          $sth->finish;
+          my %seen = ();
+          my @g = split(/,(\s?)/,$row);
+          foreach (@g) {
+              next if(!$_ || $_=~/^\s+$/);
+              $seen{$_}++;
+          }
+          @uniq   = keys %seen;
+          $grants = join(",",@uniq);
+          Log3 ($name, 4, "DbRep $name - all grants: $grants");
+      }
+  }
  
   $dbh->disconnect;
  
@@ -1519,6 +1708,7 @@ sub DbRep_getInitData($) {
  
   $mints    = $mints?encode_base64($mints,""):encode_base64($mintsdef,"");
   $idxstate = encode_base64($idxstate,"");
+  $grants   = encode_base64($grants,"") if($grants);
  
   # Background-Laufzeit ermitteln
   my $brt = tv_interval($bst);
@@ -1527,7 +1717,7 @@ sub DbRep_getInitData($) {
   no warnings 'uninitialized';
   Log3 ($name, 3, "DbRep $name - Initial data information retrieved successfully - total time used: ".sprintf("%.4f",$brt)." seconds");
  
-return "$name|$mints|$rt|0|$opt|$prop|$fret|$idxstate";
+return "$name|$mints|$rt|0|$opt|$prop|$fret|$idxstate|$grants";
 }
 
 ####################################################################################################
@@ -1546,16 +1736,17 @@ sub DbRep_getInitDataDone($) {
   my $prop           = $a[5];
   my $fret           = \&{$a[6]} if($a[6]);
   my $idxstate       = $a[7]?decode_base64($a[7]):"";
-  my $dblogdevice    = $hash->{HELPER}{DBLOGDEVICE};
-  $hash->{dbloghash} = $defs{$dblogdevice};
-  my $dbconn         = $hash->{dbloghash}{dbconn};
+  my $grants         = $a[8]?decode_base64($a[8]):"";
+  my $dbloghash      = $defs{$hash->{HELPER}{DBLOGDEVICE}};
+  my $dbconn         = $dbloghash->{dbconn};
+  
+  delete($hash->{HELPER}{RUNNING_PID});
   
   if ($err) {
       readingsBeginUpdate($hash);
       ReadingsBulkUpdateValue ($hash, "errortext", $err);
       ReadingsBulkUpdateValue ($hash, "state", "disconnected");
       readingsEndUpdate($hash, 1);
-      delete($hash->{HELPER}{RUNNING_PID});
       Log3 ($name, 2, "DbRep $name - DB connect failed. Make sure credentials of database $hash->{DATABASE} are valid and database is reachable.");
   
   } else {
@@ -1570,10 +1761,9 @@ sub DbRep_getInitDataDone($) {
       
       Log3 ($name, 3, "DbRep $name - Connectiontest to db $dbconn successful") if($hash->{LASTCMD} ne "minTimestamp");
       
-      $hash->{HELPER}{MINTS} = $mints;
+      $hash->{HELPER}{MINTS}  = $mints;
+      $hash->{HELPER}{GRANTS} = $grants if($grants);
   }
-  
-  delete($hash->{HELPER}{RUNNING_PID});
 
 return if(!$fret);
 return &$fret($hash,$opt,$prop);
@@ -1586,6 +1776,8 @@ sub DbRep_getInitDataAborted(@) {
   my ($hash,$cause) = @_;
   my $name = $hash->{NAME};
   
+  delete($hash->{HELPER}{RUNNING_PID});
+  
   $cause = $cause?$cause:"Timeout: process terminated";
   Log3 ($name, 1, "DbRep $name -> BlockingCall $hash->{HELPER}{RUNNING_PID}{fn} pid:$hash->{HELPER}{RUNNING_PID}{pid} $cause");
   
@@ -1594,8 +1786,51 @@ sub DbRep_getInitDataAborted(@) {
   ReadingsBulkUpdateValue ($hash, "state", "disconnected");
   readingsEndUpdate($hash, 1);
   
-  delete($hash->{HELPER}{RUNNING_PID});
 return;
+}
+
+######################################################################################
+#                       Connect zur Datenbank herstellen
+######################################################################################
+sub DbRep_dbConnect($$) {
+  my ($name,$uac) = @_;
+  my $hash        = $defs{$name};
+  my $dbconn      = $defs{$defs{$name}->{HELPER}{DBLOGDEVICE}}->{dbconn};
+  my $dbuser      = $defs{$defs{$name}->{HELPER}{DBLOGDEVICE}}->{dbuser};
+  my $dblogname   = $defs{$defs{$name}->{HELPER}{DBLOGDEVICE}}->{NAME};
+  my $dbmodel     = $defs{$defs{$name}->{HELPER}{DBLOGDEVICE}}->{MODEL};
+  my $dbpassword  = $attr{"sec$dblogname"}{secret};
+  my $utf8        = defined($hash->{UTF8})?$hash->{UTF8}:0;
+  $uac            = $uac?$uac:AttrVal($name, "useAdminCredentials", 0);
+  my ($dbh,$err);
+  
+  if($uac) {
+      my ($success,$admusername,$admpassword) = DbRep_getcredentials($hash,"adminCredentials");
+      if($success) {
+          $dbuser     = $admusername;
+          $dbpassword = $admpassword;
+      } else {
+          $err = "Can't use admin credentials for database access, see logfile !";
+          Log3 ($name, 2, "DbRep $name - ERROR - admin credentials are needed for database operation, but are not set or can't read it");
+		  return $err;
+      }
+  }
+  
+  eval { $dbh = DBI->connect("dbi:$dbconn", $dbuser, $dbpassword, { PrintError => 0, 
+                                                                    RaiseError => 1, 
+                                                                    AutoCommit => 1, 
+                                                                    AutoInactiveDestroy => 1,
+                                                                    mysql_enable_utf8 => $utf8
+                                                                  } ); };
+  
+  if ($@) {
+      $err = $@;
+      Log3 ($name, 2, "DbRep $name - ERROR: $@");
+  }
+  
+  Log3 ($name, 4, "DbRep $name - database user for operation: $dbuser") if($dbuser); 
+
+return ($err,$dbh);
 }
 
 ################################################################################################################
@@ -1603,14 +1838,12 @@ return;
 ################################################################################################################
 sub DbRep_Main($$;$) {
  my ($hash,$opt,$prop) = @_;
- my $name           = $hash->{NAME}; 
- my $to             = AttrVal($name, "timeout", "86400");
- my $reading        = AttrVal($name, "reading", "%");
- my $device         = AttrVal($name, "device", "%");
- my $dblogdevice    = $hash->{HELPER}{DBLOGDEVICE};
- $hash->{dbloghash} = $defs{$dblogdevice};
- my $dbloghash      = $hash->{dbloghash};
- my $dbmodel        = $dbloghash->{MODEL};
+ my $name      = $hash->{NAME}; 
+ my $to        = AttrVal($name, "timeout", "86400");
+ my $reading   = AttrVal($name, "reading", "%");
+ my $device    = AttrVal($name, "device", "%");
+ my $dbloghash = $defs{$hash->{HELPER}{DBLOGDEVICE}};
+ my $dbmodel   = $dbloghash->{MODEL};
  
  # Entkommentieren für Testroutine im Vordergrund
  # testexit($hash);
@@ -1688,7 +1921,7 @@ sub DbRep_Main($$;$) {
      return;
  }
  
-  if ($opt =~ /index/) {	
+ if ($opt =~ /index/) {	
      if (exists($hash->{HELPER}{RUNNING_INDEX})) {
          Log3 ($name, 3, "DbRep $name - WARNING - old process $hash->{HELPER}{RUNNING_INDEX}{pid} will be killed now to start a new index operation");
          BlockingKill($hash->{HELPER}{RUNNING_INDEX});
@@ -1728,15 +1961,16 @@ sub DbRep_Main($$;$) {
  # zentrales Timestamp-Array und Zeitgrenzen bereitstellen
  my ($epoch_seconds_begin,$epoch_seconds_end,$runtime_string_first,$runtime_string_next);
  my $ts = "no_aggregation";                                        # Dummy für eine Select-Schleife wenn != $IsTimeSet || $IsAggrSet
- my ($IsTimeSet,$IsAggrSet,$aggregation) = DbRep_checktimeaggr($hash); 
+ my ($IsTimeSet,$IsAggrSet,$aggregation) = DbRep_checktimeaggr($hash);
+
  if($IsTimeSet || $IsAggrSet) {
      ($epoch_seconds_begin,$epoch_seconds_end,$runtime_string_first,$runtime_string_next,$ts) = DbRep_createTimeArray($hash,$aggregation,$opt);
  } else {
      Log3 ($name, 4, "DbRep $name - Timestamp begin human readable: not set") if($opt !~ /tableCurrentPurge/);  
      Log3 ($name, 4, "DbRep $name - Timestamp end human readable: not set") if($opt !~ /tableCurrentPurge/); 
  }
- 
- Log3 ($name, 4, "DbRep $name - Aggregation: $aggregation") if($opt !~ /tableCurrentPurge|tableCurrentFillup|fetchrows|insert|reduceLog/); 
+
+ Log3 ($name, 4, "DbRep $name - Aggregation: $aggregation") if($opt !~ /tableCurrentPurge|tableCurrentFillup|fetchrows|insert|reduceLog|delEntries/); 
  
  #####  Funktionsaufrufe ##### 
  if ($opt eq "sumValue") {
@@ -1779,7 +2013,15 @@ sub DbRep_Main($$;$) {
  } elsif ($opt eq "minValue") {        
      $hash->{HELPER}{RUNNING_PID} = BlockingCall("minval_DoParse", "$name§$device§$reading§$prop§$ts", "minval_ParseDone", $to, "DbRep_ParseAborted", $hash);   
          
- } elsif ($opt eq "delEntries") {         
+ } elsif ($opt eq "delEntries") {
+     my ($yyyy1, $mm1, $dd1, $hh1, $min1, $sec1) = ($runtime_string_first =~ /(\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+)/); 
+     my ($yyyy2, $mm2, $dd2, $hh2, $min2, $sec2) = ($runtime_string_next =~ /(\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+)/);
+     my $nthants = timelocal($sec1, $min1, $hh1, $dd1, $mm1-1, $yyyy1-1900);
+     my $othants = timelocal($sec2, $min2, $hh2, $dd2, $mm2-1, $yyyy2-1900);
+     if($nthants >= $othants) {
+	     ReadingsSingleUpdateValue ($hash, "state", "Error - Wrong time limits. The <nn> (days newer than) option must be greater than the <no> (older than) one !", 1);
+         return;
+	 }  
      $hash->{HELPER}{RUNNING_PID} = BlockingCall("del_DoParse", "$name|history|$device|$reading|$runtime_string_first|$runtime_string_next", "del_ParseDone", $to, "DbRep_ParseAborted", $hash);        
  
  } elsif ($opt eq "tableCurrentPurge") {
@@ -1812,14 +2054,54 @@ sub DbRep_Main($$;$) {
  } elsif ($opt =~ /sqlCmd|sqlSpecial/ ) {
     # Execute a generic sql command or special sql
     if ($opt =~ /sqlSpecial/) {
+        my ($tq,$gcl);
+        
         if($prop eq "50mostFreqLogsLast2days") {
             $prop = "select Device, reading, count(0) AS `countA` from history where ( TIMESTAMP > (now() - interval 2 day)) group by DEVICE, READING order by countA desc, DEVICE limit 50;" if($dbmodel =~ /MYSQL/);
-            $prop = "select Device, reading, count(0) AS `countA` from history where ( TIMESTAMP > ('now' - '2 days')) group by DEVICE, READING order by countA desc, DEVICE limit 50;" if($dbmodel =~ /SQLITE/);
+            $prop = "select Device, reading, count(0) AS `countA` from history where ( TIMESTAMP > ('now' - '2 days')) group by DEVICE, READING order by countA desc, DEVICE limit 50;"       if($dbmodel =~ /SQLITE/);
             $prop = "select Device, reading, count(0) AS countA from history where ( TIMESTAMP > (NOW() - INTERVAL '2' DAY)) group by DEVICE, READING order by countA desc, DEVICE limit 50;" if($dbmodel =~ /POSTGRESQL/);
+        
         } elsif ($prop eq "allDevReadCount") {
             $prop = "select device, reading, count(*) from history group by DEVICE, READING;";
+        
         } elsif ($prop eq "allDevCount") {
             $prop = "select device, count(*) from history group by DEVICE;";
+        
+        } elsif ($prop eq "recentReadingsOfDevice") {
+            if($dbmodel =~ /MYSQL/)      {$tq = "NOW() - INTERVAL 1 DAY"; $gcl = "READING"};
+            if($dbmodel =~ /SQLITE/)     {$tq = "datetime('now','-1 day')"; $gcl = "READING"};
+            if($dbmodel =~ /POSTGRESQL/) {$tq = "CURRENT_TIMESTAMP - INTERVAL '1 day'"; $gcl = "READING,DEVICE"};
+            
+            my @cmd = split(/\s/, "SELECT t1.TIMESTAMP,t1.DEVICE,t1.READING,t1.VALUE
+                                     FROM history t1
+                                     INNER JOIN
+                                     (select max(TIMESTAMP) AS TIMESTAMP,DEVICE,READING
+                                        from history where DEVICE = '".$device."' and TIMESTAMP > ".$tq." group by ".$gcl.") x
+                                     ON x.TIMESTAMP = t1.TIMESTAMP AND
+                                        x.DEVICE    = t1.DEVICE    AND
+                                        x.READING   = t1.READING;");
+            
+            $prop   = join(" ", @cmd);
+        
+        } elsif ($prop eq "readingsDifferenceByTimeDelta") {           
+            my @cmd = split(/\s/, "SET \@diff=0;
+                                   SET \@delta=NULL;
+                                   SELECT t1.TIMESTAMP,t1.READING,t1.VALUE,t1.DIFF,t1.TIME_DELTA 
+                                     FROM (SELECT TIMESTAMP,READING,VALUE,
+                                            cast((VALUE-\@diff) AS DECIMAL(12,4))   AS DIFF,
+                                            \@diff:=VALUE                           AS curr_V,
+                                            TIMESTAMPDIFF(MINUTE,\@delta,TIMESTAMP) AS TIME_DELTA,
+                                            \@delta:=TIMESTAMP                      AS curr_T
+                                              FROM  history
+                                          WHERE DEVICE = '".$device."'   AND
+                                                READING = '".$reading."' AND
+                                                TIMESTAMP >= §timestamp_begin§ AND
+                                                TIMESTAMP <= §timestamp_end§
+                                                ORDER BY TIMESTAMP
+                                          ) t1;"
+                           );
+            
+            $prop   = join(" ", @cmd);
         }
     }
     $hash->{HELPER}{RUNNING_PID} = BlockingCall("sqlCmd_DoParse", "$name|$opt|$runtime_string_first|$runtime_string_next|$prop", "sqlCmd_ParseDone", $to, "DbRep_ParseAborted", $hash);     
@@ -1830,7 +2112,15 @@ sub DbRep_Main($$;$) {
     $hash->{HELPER}{RUNNING_PID} = BlockingCall("DbRep_syncStandby", "$name§$device§$reading§$runtime_string_first§$runtime_string_next§$ts§$prop", "DbRep_syncStandbyDone", $to, "DbRep_ParseAborted", $hash);     
  }
  
- if ($opt =~ /reduceLog/) {	
+ if ($opt =~ /reduceLog/) {
+     my ($yyyy1, $mm1, $dd1, $hh1, $min1, $sec1) = ($runtime_string_first =~ /(\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+)/); 
+     my ($yyyy2, $mm2, $dd2, $hh2, $min2, $sec2) = ($runtime_string_next  =~ /(\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+)/);
+     my $nthants = timelocal($sec1, $min1, $hh1, $dd1, $mm1-1, $yyyy1-1900);
+     my $othants = timelocal($sec2, $min2, $hh2, $dd2, $mm2-1, $yyyy2-1900);
+     if($nthants >= $othants) {
+	     ReadingsSingleUpdateValue ($hash, "state", "Error - Wrong time limits. The <nn> (days newer than) option must be greater than the <no> (older than) one !", 1);
+         return;
+	 } 
      $hash->{HELPER}{RUNNING_REDUCELOG} = BlockingCall("DbRep_reduceLog", "$name|$device|$reading|$runtime_string_first|$runtime_string_next", "DbRep_reduceLogDone", $to, "DbRep_reduceLogAborted", $hash);
 	 ReadingsSingleUpdateValue ($hash, "state", "reduceLog database is running - be patient and see Logfile !", 1);
      $hash->{HELPER}{RUNNING_REDUCELOG}{loglevel} = 5 if($hash->{HELPER}{RUNNING_REDUCELOG});  # Forum #77057 
@@ -1865,8 +2155,8 @@ sub DbRep_createTimeArray($$$) {
  my $mints = $hash->{HELPER}{MINTS}?$hash->{HELPER}{MINTS}:"1970-01-01 01:00:00";  # Timestamp des 1. Datensatzes verwenden falls ermittelt
  $tsbegin = AttrVal($name, "timestamp_begin", $mints);
  $tsbegin = DbRep_formatpicker($tsbegin);
- $tsend = AttrVal($name, "timestamp_end", strftime "%Y-%m-%d %H:%M:%S", localtime(time));
- $tsend = DbRep_formatpicker($tsend);
+ $tsend   = AttrVal($name, "timestamp_end", strftime "%Y-%m-%d %H:%M:%S", localtime(time));
+ $tsend   = DbRep_formatpicker($tsend);
  
  if ( my $tap = AttrVal($name, "timeYearPeriod", undef)) {
      # a  b   c  d
@@ -1890,7 +2180,7 @@ sub DbRep_createTimeArray($$$) {
  }
 
  if (AttrVal($name,"timestamp_begin","") eq "current_year_begin" ||
-     AttrVal($name,"timestamp_end","") eq "current_year_begin") {
+          AttrVal($name,"timestamp_end","") eq "current_year_begin") {
      $tsbegin = strftime "%Y-%m-%d %T",localtime(timelocal(0,0,0,1,0,$year)) if(AttrVal($name,"timestamp_begin","") eq "current_year_begin");
 	 $tsend   = strftime "%Y-%m-%d %T",localtime(timelocal(0,0,0,1,0,$year)) if(AttrVal($name,"timestamp_end","") eq "current_year_begin");
  } 
@@ -2105,42 +2395,56 @@ sub DbRep_createTimeArray($$$) {
  my ($yyyy1, $mm1, $dd1, $hh1, $min1, $sec1) = ($tsbegin =~ /(\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+)/); 
  # extrahieren der Einzelwerte von Datum/Zeit Ende 
  my ($yyyy2, $mm2, $dd2, $hh2, $min2, $sec2) = ($tsend =~ /(\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+)/);
-        	 
-
- #  relative Auswertungszeit Beginn berücksichtigen  # Umwandeln in Epochesekunden Beginn
- my $epoch_seconds_begin = timelocal($sec1, $min1, $hh1, $dd1, $mm1-1, $yyyy1-1900) if($tsbegin);
- my ($timeolderthan,$timedifftonow) = DbRep_normRelTime($hash);
  
+ # relative Zeit normieren  
+ my ($timeolderthan,$timedifftonow,$fdopt) = DbRep_normRelTime($hash);
+ 
+ ### relative Auswertungszeit Beginn berücksichtigen, Umwandeln in Epochesekunden Beginn ###
+ my $epoch_seconds_begin = timelocal($sec1, $min1, $hh1, $dd1, $mm1-1, $yyyy1-1900) if($tsbegin);
  if($timedifftonow) {
      $epoch_seconds_begin = time() - $timedifftonow;
      Log3 ($name, 4, "DbRep $name - Time difference to current time for calculating Timestamp begin: $timedifftonow sec"); 
  } elsif ($timeolderthan) {
-     my $mints = $hash->{HELPER}{MINTS}?$hash->{HELPER}{MINTS}:"1970-01-01 01:00:00";  # Timestamp des 1. Datensatzes verwenden falls ermittelt
+     my $mints = $hash->{HELPER}{MINTS}?$hash->{HELPER}{MINTS}:"1970-01-01 01:00:00";                   # Timestamp des 1. Datensatzes verwenden falls ermittelt
      $mints =~ /^(\d+)-(\d+)-(\d+)\s(\d+):(\d+):(\d+)$/;
      $epoch_seconds_begin = timelocal($6, $5, $4, $3, $2-1, $1-1900);
  }
- 
+
+ if($fdopt) {                                                                                           # FullDay Option ist gesetzt
+     my $tbs = strftime "%Y-%m-%d %H:%M:%S", localtime($epoch_seconds_begin);
+     $tbs    =~ /^(\d+)-(\d+)-(\d+)\s(\d+):(\d+):(\d+)$/;
+     $epoch_seconds_begin = timelocal(00, 00, 00, $3, $2-1, $1-1900);	 
+ }
  my $tsbegin_string = strftime "%Y-%m-%d %H:%M:%S", localtime($epoch_seconds_begin);
- Log3 ($name, 5, "DbRep $name - Timestamp begin epocheseconds: $epoch_seconds_begin") if($opt !~ /tableCurrentPurge/);   
- Log3 ($name, 4, "DbRep $name - Timestamp begin human readable: $tsbegin_string") if($opt !~ /tableCurrentPurge/);  
  
+ if($opt !~ /tableCurrentPurge/) {
+     Log3 ($name, 5, "DbRep $name - Timestamp begin epocheseconds: $epoch_seconds_begin");   
+     Log3 ($name, 4, "DbRep $name - Timestamp begin human readable: $tsbegin_string");
+ } 
+ ###########################################################################################
 
- #  relative Auswertungszeit Ende berücksichtigen  # Umwandeln in Epochesekunden Endezeit
- my $epoch_seconds_end = timelocal($sec2, $min2, $hh2, $dd2, $mm2-1, $yyyy2-1900); 
- 
- $epoch_seconds_end = $timeolderthan ? (time() - $timeolderthan) : $epoch_seconds_end;
-
- #$epoch_seconds_end = AttrVal($name, "timeOlderThan", undef) ? 
- #                          (time() - AttrVal($name, "timeOlderThan", undef)) : $epoch_seconds_end;
+ ### relative Auswertungszeit Ende berücksichtigen, Umwandeln in Epochesekunden Endezeit ###
+ my $epoch_seconds_end = timelocal($sec2, $min2, $hh2, $dd2, $mm2-1, $yyyy2-1900);
+ if($timeolderthan) {
+     $epoch_seconds_end = time() - $timeolderthan;
+ }
  Log3 ($name, 4, "DbRep $name - Time difference to current time for calculating Timestamp end: $timeolderthan sec") if(AttrVal($name, "timeOlderThan", undef)); 
  
+ if($fdopt) {                                                                                           # FullDay Option ist gesetzt
+     my $tes = strftime "%Y-%m-%d %H:%M:%S", localtime($epoch_seconds_end);
+     $tes    =~ /^(\d+)-(\d+)-(\d+)\s(\d+):(\d+):(\d+)$/;
+     $epoch_seconds_end = timelocal(59, 59, 23, $3, $2-1, $1-1900);	 
+ }
  my $tsend_string = strftime "%Y-%m-%d %H:%M:%S", localtime($epoch_seconds_end);
  
- Log3 ($name, 5, "DbRep $name - Timestamp end epocheseconds: $epoch_seconds_end") if($opt !~ /tableCurrentPurge/); 
- Log3 ($name, 4, "DbRep $name - Timestamp end human readable: $tsend_string") if($opt !~ /tableCurrentPurge/); 
-
+ if($opt !~ /tableCurrentPurge/) {
+     Log3 ($name, 5, "DbRep $name - Timestamp end epocheseconds: $epoch_seconds_end"); 
+     Log3 ($name, 4, "DbRep $name - Timestamp end human readable: $tsend_string");
+ } 
+ ###########################################################################################
 
  #  Erstellung Wertehash für Aggregationen
+ 
  my $runtime = $epoch_seconds_begin;                                    # Schleifenlaufzeit auf Beginn der Zeitselektion setzen
  my $runtime_string;                                                    # Datum/Zeit im SQL-Format für Readingname Teilstring
  my $runtime_string_first;                                              # Datum/Zeit Auswertungsbeginn im SQL-Format für SQL-Statement
@@ -2164,7 +2468,7 @@ sub DbRep_createTimeArray($$$) {
  $wdadd = 172800 if($wd eq "Sa");                                       # wenn Start am "Sa" dann nächste Grenze +2 Tage
  $wdadd = 86400  if($wd eq "So");                                       # wenn Start am "So" dann nächste Grenze +1 Tage
              
- Log3 ($name, 5, "DbRep $name - weekday of start for selection: $wd  ->  wdadd: $wdadd") if($wdadd); 
+ Log3 ($name, 5, "DbRep $name - weekday start for selection: $wd  ->  wdadd: $wdadd") if($wdadd); 
  
  my $aggsec;
  if ($aggregation eq "hour") {
@@ -2436,7 +2740,7 @@ sub averval_DoParse($) {
  my ($string) = @_;
  my ($name,$device,$reading,$prop,$ts) = split("\\§", $string);
  my $hash       = $defs{$name};
- my $dbloghash  = $hash->{dbloghash};
+ my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn     = $dbloghash->{dbconn};
  my $dbuser     = $dbloghash->{dbuser};
  my $dblogname  = $dbloghash->{NAME};
@@ -2496,7 +2800,7 @@ sub averval_DoParse($) {
  my $st = [gettimeofday];
       
  # DB-Abfrage zeilenweise für jeden Array-Eintrag
- my $arrstr;
+ my ($arrstr,$wrstr,@rsf,@rsn);
  foreach my $row (@ts) {
      my @a                     = split("#", $row);
      my $runtime_string        = $a[0];
@@ -2526,13 +2830,17 @@ sub averval_DoParse($) {
          my @line = $sth->fetchrow_array();
      
          Log3 ($name, 5, "DbRep $name - SQL result: $line[0]") if($line[0]);
-	 
+         
          if(AttrVal($name, "aggregation", "") eq "hour") {
-             my @rsf = split(/[" "\|":"]/,$runtime_string_first);
-             $arrstr .= $runtime_string."#".$line[0]."#".$rsf[0]."_".$rsf[1]."|";  
+             @rsf     = split(/[ :]/,$runtime_string_first);
+             @rsn     = split(/[ :]/,$runtime_string_next);
+             $arrstr .= $runtime_string."#".$line[0]."#".$rsf[0]."_".$rsf[1]."|";
+             $wrstr  .= $runtime_string."#".$line[0]."#".$rsf[0]."_".$rsf[1]."#".$rsn[0]."_".$rsn[1]."|";    # Kombi zum Rückschreiben in die DB
          } else {
-             my @rsf = split(" ",$runtime_string_first);
-             $arrstr .= $runtime_string."#".$line[0]."#".$rsf[0]."|"; 
+             @rsf     = split(" ",$runtime_string_first);
+             @rsn     = split(" ",$runtime_string_next);
+             $arrstr .= $runtime_string."#".$line[0]."#".$rsf[0]."|";
+             $wrstr  .= $runtime_string."#".$line[0]."#".$rsf[0]."#".$rsn[0]."|";                            # Kombi zum Rückschreiben in die DB
          }
      
      } elsif ($acf eq "avgDailyMeanGWS") {
@@ -2582,14 +2890,18 @@ sub averval_DoParse($) {
          } else {
              $sum = "insufficient values";
          }
- 
+
          if(AttrVal($name, "aggregation", "") eq "hour") {
-             my @rsf = split(/[" "\|":"]/,$runtime_string_first);
-             $arrstr .= $runtime_string."#".$sum."#".$rsf[0]."_".$rsf[1]."|";  
+             @rsf     = split(/[ :]/,$runtime_string_first);
+             @rsn     = split(/[ :]/,$runtime_string_next);
+             $arrstr .= $runtime_string."#".$sum."#".$rsf[0]."_".$rsf[1]."|";
+             $wrstr  .= $runtime_string."#".$sum."#".$rsf[0]."_".$rsf[1]."#".$rsn[0]."_".$rsn[1]."|";    # Kombi zum Rückschreiben in die DB
          } else {
-             my @rsf = split(" ",$runtime_string_first);
-             $arrstr .= $runtime_string."#".$sum."#".$rsf[0]."|"; 
-         }      
+             @rsf     = split(" ",$runtime_string_first);
+             @rsn     = split(" ",$runtime_string_next);
+             $arrstr .= $runtime_string."#".$sum."#".$rsf[0]."|";
+             $wrstr  .= $runtime_string."#".$sum."#".$rsf[0]."#".$rsn[0]."|";                            # Kombi zum Rückschreiben in die DB
+         }         
      
      } elsif ($acf eq "avgTimeWeightMean") {
          # zeitgewichteten Mittelwert berechnen
@@ -2666,13 +2978,17 @@ sub averval_DoParse($) {
                  Log3 ($name, 5, "DbRep $name - data element: $twmrow");
                  Log3 ($name, 5, "DbRep $name - time sum: $tsum, delta time: $dt, value: $val1, twm: ".$val1*($dt/$tsum));                 
              }             
-         }              
+         }               
          if(AttrVal($name, "aggregation", "") eq "hour") {
-             my @rsf = split(/[" "\|":"]/,$runtime_string_first);
-             $arrstr .= $runtime_string."#".$sum."#".$rsf[0]."_".$rsf[1]."|";  
+             @rsf     = split(/[ :]/,$runtime_string_first);
+             @rsn     = split(/[ :]/,$runtime_string_next);
+             $arrstr .= $runtime_string."#".$sum."#".$rsf[0]."_".$rsf[1]."|";
+             $wrstr  .= $runtime_string."#".$sum."#".$rsf[0]."_".$rsf[1]."#".$rsn[0]."_".$rsn[1]."|";    # Kombi zum Rückschreiben in die DB
          } else {
-             my @rsf = split(" ",$runtime_string_first);
-             $arrstr .= $runtime_string."#".$sum."#".$rsf[0]."|"; 
+             @rsf     = split(" ",$runtime_string_first);
+             @rsn     = split(" ",$runtime_string_next);
+             $arrstr .= $runtime_string."#".$sum."#".$rsf[0]."|";
+             $wrstr  .= $runtime_string."#".$sum."#".$rsf[0]."#".$rsn[0]."|";                            # Kombi zum Rückschreiben in die DB
          } 
      }
  }   
@@ -2686,7 +3002,7 @@ sub averval_DoParse($) {
  # Ergebnisse in Datenbank schreiben
  my ($wrt,$irowdone);
  if($prop =~ /writeToDB/) {
-     ($wrt,$irowdone,$err) = DbRep_OutputWriteToDB($name,$device,$reading,$arrstr,$qlf);
+     ($wrt,$irowdone,$err) = DbRep_OutputWriteToDB($name,$device,$reading,$wrstr,$qlf);
      if ($err) {
          Log3 $hash->{NAME}, 2, "DbRep $name - $err"; 
          $err = encode_base64($err,"");
@@ -2697,6 +3013,7 @@ sub averval_DoParse($) {
   
  # Daten müssen als Einzeiler zurückgegeben werden
  $arrstr = encode_base64($arrstr,"");
+ $device = encode_base64($device,"");
  
  # Background-Laufzeit ermitteln
  my $brt = tv_interval($bst);
@@ -2715,7 +3032,7 @@ sub averval_ParseDone($) {
   my $hash       = $defs{$a[0]};
   my $name       = $hash->{NAME};
   my $arrstr     = decode_base64($a[1]);
-  my $device     = $a[2];
+  my $device     = decode_base64($a[2]);
      $device     =~ s/[^A-Za-z\/\d_\.-]/\//g;
   my $reading    = $a[3];
      $reading    =~ s/[^A-Za-z\/\d_\.-]/\//g;
@@ -2726,13 +3043,14 @@ sub averval_ParseDone($) {
   my $reading_runtime_string;
   my $erread;
   
+  delete($hash->{HELPER}{RUNNING_PID});
+  
   # Befehl nach Procedure ausführen
   $erread = DbRep_afterproc($hash, "$hash->{LASTCMD}");
   
   if ($err) {
       ReadingsSingleUpdateValue ($hash, "errortext", $err, 1);
       ReadingsSingleUpdateValue ($hash, "state", "error", 1);
-      delete($hash->{HELPER}{RUNNING_PID});
       return;
   }
   
@@ -2777,8 +3095,6 @@ sub averval_ParseDone($) {
   ReadingsBulkUpdateTimeState($hash,$brt,$rt,$state);  
   readingsEndUpdate($hash, 1);
   
-  delete($hash->{HELPER}{RUNNING_PID});
-  
 return;
 }
 
@@ -2789,7 +3105,7 @@ sub count_DoParse($) {
  my ($string) = @_;
  my ($name,$table,$device,$reading,$ts) = split("\\§", $string);
  my $hash       = $defs{$name};
- my $dbloghash  = $hash->{dbloghash};
+ my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn     = $dbloghash->{dbconn};
  my $dbuser     = $dbloghash->{dbuser};
  my $dblogname  = $dbloghash->{NAME};
@@ -2805,7 +3121,7 @@ sub count_DoParse($) {
  if ($@) {
      $err = encode_base64($@,"");
      Log3 ($name, 2, "DbRep $name - $@");
-     return "$name|''|$device|$reading|''|$err|$table";
+     return "$name|''|$device|''|$err|$table";
  }
      
  # only for this block because of warnings if details of readings are not set
@@ -2860,7 +3176,7 @@ sub count_DoParse($) {
          $err = encode_base64($@,"");
          Log3 ($name, 2, "DbRep $name - $@");
          $dbh->disconnect;
-         return "$name|''|$device|$reading|''|$err|$table";
+         return "$name|''|$device|''|$err|$table";
      }
      
      if($ced) {
@@ -2887,6 +3203,7 @@ sub count_DoParse($) {
  
  # Daten müssen als Einzeiler zurückgegeben werden
  $arrstr = encode_base64($arrstr,"");
+ $device = encode_base64($device,"");
  
  # Background-Laufzeit ermitteln
  my $brt = tv_interval($bst);
@@ -2905,7 +3222,7 @@ sub count_ParseDone($) {
   my $hash       = $defs{$a[0]};
   my $name       = $hash->{NAME};
   my $arrstr     = decode_base64($a[1]);
-  my $device     = $a[2];
+  my $device     = decode_base64($a[2]);
      $device     =~ s/[^A-Za-z\/\d_\.-]/\//g;
   my $bt         = $a[3];
   my ($rt,$brt)  = split(",", $bt);
@@ -2913,10 +3230,11 @@ sub count_ParseDone($) {
   my $table      = $a[5];
   my $reading_runtime_string;
   
-   if ($err) {
+  delete($hash->{HELPER}{RUNNING_PID});
+  
+  if ($err) {
       ReadingsSingleUpdateValue ($hash, "errortext", $err, 1);
       ReadingsSingleUpdateValue ($hash, "state", "error", 1);
-      delete($hash->{HELPER}{RUNNING_PID});
       return;
   }
   
@@ -2942,7 +3260,12 @@ sub count_ParseDone($) {
       } else {
           my $ds  = $device."__" if ($device);
           my $rds = $reading."__" if ($reading);
-          $reading_runtime_string = $rsf.$ds.$rds."COUNT_".$table."__".$runtime_string;
+          if(AttrVal($name,"countEntriesDetail",0)) {
+              # $reading_runtime_string = $rsf.$ds.$rds."COUNT_".$table."__".$runtime_string;
+              $reading_runtime_string = $rsf.$rds."COUNT_".$table."__".$runtime_string;
+          } else {
+              $reading_runtime_string = $rsf."COUNT_".$table."__".$runtime_string;
+          }
       }
          
 	  ReadingsBulkUpdateValue ($hash, $reading_runtime_string, $c?$c:"-");
@@ -2950,8 +3273,6 @@ sub count_ParseDone($) {
   
   ReadingsBulkUpdateTimeState($hash,$brt,$rt,"done");
   readingsEndUpdate($hash, 1);
-  
-  delete($hash->{HELPER}{RUNNING_PID});
   
 return;
 }
@@ -2963,7 +3284,7 @@ sub maxval_DoParse($) {
  my ($string) = @_;
  my ($name,$device,$reading,$prop,$ts) = split("\\§", $string);
  my $hash       = $defs{$name};
- my $dbloghash  = $hash->{dbloghash};
+ my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn     = $dbloghash->{dbconn};
  my $dbuser     = $dbloghash->{dbuser};
  my $dblogname  = $dbloghash->{NAME};
@@ -3021,15 +3342,15 @@ sub maxval_DoParse($) {
          return "$name|''|$device|$reading|''|$err|''";
      } 
          
-     my @array= map { $runtime_string." ".$_ -> [0]." ".$_ -> [1]."\n" } @{ $sth->fetchall_arrayref() };
+     my @array = map { $runtime_string." ".$_->[0]." ".$_->[1]."!_ESC_!".$runtime_string_first."|".$runtime_string_next } @{ $sth->fetchall_arrayref() };
          
      if(!@array) {
          if(AttrVal($name, "aggregation", "") eq "hour") {
-             my @rsf = split(/[" "\|":"]/,$runtime_string_first);
-             @array = ($runtime_string." "."0"." ".$rsf[0]."_".$rsf[1]."\n");
+             my @rsf = split(/[ :]/,$runtime_string_first);
+             @array = ($runtime_string." "."0"." ".$rsf[0]."_".$rsf[1]."!_ESC_!".$runtime_string_first."|".$runtime_string_next);
          } else {
              my @rsf = split(" ",$runtime_string_first);
-             @array = ($runtime_string." "."0"." ".$rsf[0]."\n");
+             @array = ($runtime_string." "."0"." ".$rsf[0]."!_ESC_!".$runtime_string_first."|".$runtime_string_next);
          }
      } 
      push(@row_array, @array);  
@@ -3049,10 +3370,12 @@ sub maxval_DoParse($) {
  my ($lastruntimestring,$row_max_time,$max_value);
   
  foreach my $row (@row_array) {
-     my @a = split("[ \t][ \t]*", $row);
+     my ($r,$t)         = split("!_ESC_!", $row);               # $t enthält $runtime_string_first."|".$runtime_string_next
+     my @a              = split("[ \t][ \t]*", $r);
      my $runtime_string = decode_base64($a[0]);
      $lastruntimestring = $runtime_string if ($i == 1);
      my $value          = $a[1];
+     
      $a[-1]             =~ s/:/-/g if($a[-1]);          # substituieren unsupported characters -> siehe fhem.pl
      my $timestamp      = ($a[-1]&&$a[-2])?$a[-2]."_".$a[-1]:$a[-1];
       
@@ -3070,18 +3393,18 @@ sub maxval_DoParse($) {
             
      if ($runtime_string eq $lastruntimestring) {
          if (!defined($max_value) || $value >= $max_value) {
-             $max_value    = $value;
-             $row_max_time = $timestamp;
-             $rh{$runtime_string} = $runtime_string."|".$max_value."|".$row_max_time;            
+             $max_value           = $value;
+             $row_max_time        = $timestamp;
+             $rh{$runtime_string} = $runtime_string."|".$max_value."|".$row_max_time."|".$t;            
          }
      } else {
          # neuer Zeitabschnitt beginnt, ersten Value-Wert erfassen 
          $lastruntimestring = $runtime_string;
          undef $max_value;
          if (!defined($max_value) || $value >= $max_value) {
-             $max_value    = $value;
-             $row_max_time = $timestamp;
-             $rh{$runtime_string} = $runtime_string."|".$max_value."|".$row_max_time; 
+             $max_value           = $value;
+             $row_max_time        = $timestamp;
+             $rh{$runtime_string} = $runtime_string."|".$max_value."|".$row_max_time."|".$t; 
          }
      }
      $i++;
@@ -3108,7 +3431,19 @@ sub maxval_DoParse($) {
      $rt = $rt+$wrt;
  }
  
+ # andere Werte als "MAX" aus Datenbank löschen
+ if($prop =~ /deleteOther/) {
+     ($wrt,$irowdone,$err) = DbRep_deleteOtherFromDB($name,$device,$reading,$rows);
+     if ($err) {
+         Log3 $hash->{NAME}, 2, "DbRep $name - $err"; 
+         $err = encode_base64($err,"");
+         return "$name|''|$device|$reading|''|$err|''";
+     }
+     $rt = $rt+$wrt;
+ }
+ 
  my $rowlist = encode_base64($rows,"");
+ $device     = encode_base64($device,"");
  
  # Background-Laufzeit ermitteln
  my $brt = tv_interval($bst);
@@ -3127,7 +3462,7 @@ sub maxval_ParseDone($) {
   my $hash      = $defs{$a[0]};
   my $name      = $hash->{NAME};
   my $rowlist   = decode_base64($a[1]);
-  my $device    = $a[2];
+  my $device    = decode_base64($a[2]);
      $device    =~ s/[^A-Za-z\/\d_\.-]/\//g;
   my $reading   = $a[3];
      $reading   =~ s/[^A-Za-z\/\d_\.-]/\//g;
@@ -3138,13 +3473,14 @@ sub maxval_ParseDone($) {
   my $reading_runtime_string;
   my $erread;
   
+  delete($hash->{HELPER}{RUNNING_PID});
+  
   # Befehl nach Procedure ausführen
   $erread = DbRep_afterproc($hash, "$hash->{LASTCMD}");
   
   if ($err) {
       ReadingsSingleUpdateValue ($hash, "errortext", $err, 1);
       ReadingsSingleUpdateValue ($hash, "state", "error", 1);
-      delete($hash->{HELPER}{RUNNING_PID});
       return;
   }
   
@@ -3163,7 +3499,7 @@ sub maxval_ParseDone($) {
   no warnings 'uninitialized'; 
  
   foreach my $key (sort(keys(%rh))) {
-      my @k = split("\\|",$rh{$key});
+      my @k    = split("\\|",$rh{$key});
       my $rsf  = $k[2]."__" if($k[2]);
       
       if (AttrVal($hash->{NAME}, "readingNameMap", "")) {
@@ -3178,11 +3514,9 @@ sub maxval_ParseDone($) {
       ReadingsBulkUpdateValue ($hash, $reading_runtime_string, defined($rv)?sprintf("%.4f",$rv):"-");
   }
   
-  ReadingsBulkUpdateValue ($hash, "db_lines_processed", $irowdone) if($hash->{LASTCMD} =~ /writeToDB/);
-  ReadingsBulkUpdateTimeState($hash,$brt,$rt,$state);
-  readingsEndUpdate($hash, 1);
-
-  delete($hash->{HELPER}{RUNNING_PID});
+  ReadingsBulkUpdateValue     ($hash, "db_lines_processed", $irowdone) if($hash->{LASTCMD} =~ /writeToDB|deleteOther/);
+  ReadingsBulkUpdateTimeState ($hash,$brt,$rt,$state);
+  readingsEndUpdate           ($hash, 1);
   
 return;
 }
@@ -3194,7 +3528,7 @@ sub minval_DoParse($) {
  my ($string) = @_;
  my ($name,$device,$reading,$prop,$ts) = split("\\§", $string);
  my $hash       = $defs{$name};
- my $dbloghash  = $hash->{dbloghash};
+ my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn     = $dbloghash->{dbconn};
  my $dbuser     = $dbloghash->{dbuser};
  my $dblogname  = $dbloghash->{NAME};
@@ -3252,15 +3586,15 @@ sub minval_DoParse($) {
          return "$name|''|$device|$reading|''|$err|''";
      } 
          
-     my @array= map { $runtime_string." ".$_ -> [0]." ".$_ -> [1]."\n" } @{ $sth->fetchall_arrayref() };
+     my @array = map { $runtime_string." ".$_->[0]." ".$_->[1]."!_ESC_!".$runtime_string_first."|".$runtime_string_next } @{ $sth->fetchall_arrayref() };
          
      if(!@array) {
          if(AttrVal($name, "aggregation", "") eq "hour") {
-             my @rsf = split(/[" "\|":"]/,$runtime_string_first);
-             @array = ($runtime_string." "."0"." ".$rsf[0]."_".$rsf[1]."\n");
+             my @rsf = split(/[ :]/,$runtime_string_first);
+             @array = ($runtime_string." "."0"." ".$rsf[0]."_".$rsf[1]."!_ESC_!".$runtime_string_first."|".$runtime_string_next);
          } else {
              my @rsf = split(" ",$runtime_string_first);
-             @array = ($runtime_string." "."0"." ".$rsf[0]."\n");
+             @array = ($runtime_string." "."0"." ".$rsf[0]."!_ESC_!".$runtime_string_first."|".$runtime_string_next);
          }
      }      
      push(@row_array, @array);  
@@ -3278,16 +3612,16 @@ sub minval_DoParse($) {
  my $i = 1;
  my %rh = ();
  my $lastruntimestring;
- my $row_min_time; 
- my ($min_value,$value);
+ my ($row_min_time,$min_value,$value); 
   
  foreach my $row (@row_array) {
-     my @a = split("[ \t][ \t]*", $row);
+     my ($r,$t)         = split("!_ESC_!", $row);               # $t enthält $runtime_string_first."|".$runtime_string_next
+     my @a              = split("[ \t][ \t]*", $r);
      my $runtime_string = decode_base64($a[0]);
      $lastruntimestring = $runtime_string if ($i == 1);
      $value             = $a[1];
      $min_value         = $a[1] if ($i == 1);
-     $a[-1]             =~ s/:/-/g if($a[-1]);          # substituieren unsupported characters -> siehe fhem.pl
+     $a[-1]             =~ s/:/-/g if($a[-1]);                  # substituieren unsupported characters -> siehe fhem.pl
      my $timestamp      = ($a[-1]&&$a[-2])?$a[-2]."_".$a[-1]:$a[-1];
       
      # Leerzeichen am Ende $timestamp entfernen
@@ -3295,7 +3629,6 @@ sub minval_DoParse($) {
       
      # Test auf $value = "numeric"
      if (!looks_like_number($value)) {
-         # $a[-1] =~ s/\s+$//g;
          Log3 ($name, 2, "DbRep $name - ERROR - value isn't numeric in minValue function. Faulty dataset was \nTIMESTAMP: $timestamp, DEVICE: $device, READING: $reading, VALUE: $value.");
          $err = encode_base64("Value isn't numeric. Faulty dataset was - TIMESTAMP: $timestamp, VALUE: $value", "");
          return "$name|''|$device|$reading|''|$err|''";
@@ -3303,20 +3636,20 @@ sub minval_DoParse($) {
       
      Log3 ($name, 5, "DbRep $name - Runtimestring: $runtime_string, DEVICE: $device, READING: $reading, TIMESTAMP: $timestamp, VALUE: $value");
       
-     $rh{$runtime_string} = $runtime_string."|".$min_value."|".$timestamp if ($i == 1);  # minValue des ersten SQL-Statements in hash einfügen
+     $rh{$runtime_string} = $runtime_string."|".$min_value."|".$timestamp."|".$t if ($i == 1);     # minValue des ersten SQL-Statements in hash einfügen
       
      if ($runtime_string eq $lastruntimestring) {
          if (!defined($min_value) || $value < $min_value) {
-             $min_value    = $value;
-             $row_min_time = $timestamp;
-             $rh{$runtime_string} = $runtime_string."|".$min_value."|".$row_min_time;            
+             $min_value           = $value;
+             $row_min_time        = $timestamp;
+             $rh{$runtime_string} = $runtime_string."|".$min_value."|".$row_min_time."|".$t;             
          }
      } else {
          # neuer Zeitabschnitt beginnt, ersten Value-Wert erfassen 
-         $lastruntimestring = $runtime_string;
-         $min_value         = $value;
-         $row_min_time      = $timestamp;
-         $rh{$runtime_string} = $runtime_string."|".$min_value."|".$row_min_time; 
+         $lastruntimestring   = $runtime_string;
+         $min_value           = $value;
+         $row_min_time        = $timestamp;
+         $rh{$runtime_string} = $runtime_string."|".$min_value."|".$row_min_time."|".$t;   
      }
      $i++;
  }
@@ -3342,7 +3675,19 @@ sub minval_DoParse($) {
      $rt = $rt+$wrt;
  }
  
+ # andere Werte als "MIN" aus Datenbank löschen
+ if($prop =~ /deleteOther/) {
+     ($wrt,$irowdone,$err) = DbRep_deleteOtherFromDB($name,$device,$reading,$rows);
+     if ($err) {
+         Log3 $hash->{NAME}, 2, "DbRep $name - $err"; 
+         $err = encode_base64($err,"");
+         return "$name|''|$device|$reading|''|$err|''";
+     }
+     $rt = $rt+$wrt;
+ }
+ 
  my $rowlist = encode_base64($rows,"");
+ $device     = encode_base64($device,"");
  
  # Background-Laufzeit ermitteln
  my $brt = tv_interval($bst);
@@ -3361,7 +3706,7 @@ sub minval_ParseDone($) {
   my $hash = $defs{$a[0]};
   my $name = $hash->{NAME};
   my $rowlist   = decode_base64($a[1]);
-  my $device    = $a[2];
+  my $device    = decode_base64($a[2]);
      $device    =~ s/[^A-Za-z\/\d_\.-]/\//g;
   my $reading   = $a[3];
      $reading   =~ s/[^A-Za-z\/\d_\.-]/\//g;
@@ -3372,13 +3717,14 @@ sub minval_ParseDone($) {
   my $reading_runtime_string;
   my $erread;
   
+  delete($hash->{HELPER}{RUNNING_PID});
+  
   # Befehl nach Procedure ausführen
   $erread = DbRep_afterproc($hash, "$hash->{LASTCMD}");
   
   if ($err) {
       ReadingsSingleUpdateValue ($hash, "errortext", $err, 1);
       ReadingsSingleUpdateValue ($hash, "state", "error", 1);
-      delete($hash->{HELPER}{RUNNING_PID});
       return;
   }
   
@@ -3412,11 +3758,9 @@ sub minval_ParseDone($) {
       ReadingsBulkUpdateValue ($hash, $reading_runtime_string, defined($rv)?sprintf("%.4f",$rv):"-");
   }
   
-  ReadingsBulkUpdateValue ($hash, "db_lines_processed", $irowdone) if($hash->{LASTCMD} =~ /writeToDB/);
-  ReadingsBulkUpdateTimeState($hash,$brt,$rt,$state);
-  readingsEndUpdate($hash, 1);
-
-  delete($hash->{HELPER}{RUNNING_PID});
+  ReadingsBulkUpdateValue     ($hash, "db_lines_processed", $irowdone) if($hash->{LASTCMD} =~ /writeToDB|deleteOther/);
+  ReadingsBulkUpdateTimeState ($hash,$brt,$rt,$state);
+  readingsEndUpdate           ($hash, 1);
   
 return;
 }
@@ -3428,7 +3772,7 @@ sub diffval_DoParse($) {
  my ($string) = @_;
  my ($name,$device,$reading,$prop,$ts) = split("\\§", $string);
  my $hash       = $defs{$name};
- my $dbloghash  = $hash->{dbloghash};
+ my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn     = $dbloghash->{dbconn};
  my $dbuser     = $dbloghash->{dbuser};
  my $dblogname  = $dbloghash->{NAME};
@@ -3534,11 +3878,11 @@ sub diffval_DoParse($) {
 		 
          if(!@array) {
              if(AttrVal($name, "aggregation", "") eq "hour") {
-                 my @rsf = split(/[" "\|":"]/,$runtime_string_first);
-                 @array = ($runtime_string." ".$rsf[0]."_".$rsf[1]."\n");
+                 my @rsf = split(/[ :]/,$runtime_string_first);
+                 @array  = ($runtime_string." ".$rsf[0]."_".$rsf[1]."\n");
              } else {
                  my @rsf = split(" ",$runtime_string_first);
-                 @array = ($runtime_string." ".$rsf[0]."\n");
+                 @array  = ($runtime_string." ".$rsf[0]."\n");
              }
          }
          push(@row_array, @array);
@@ -3576,13 +3920,7 @@ sub diffval_DoParse($) {
       $lastruntimestring = $runtime_string if ($i == 1);
       my $timestamp      = $a[2]?$a[1]."_".$a[2]:$a[1];
       my $value          = $a[3]?$a[3]:0;  
-      my $diff           = $a[4]?sprintf("%.4f",$a[4]):0;   
-
-#      if ($uediff)	  {
-#	      $diff = $diff + $uediff;
-#		  Log3 ($name, 4, "DbRep $name - balance difference of $uediff between $rslval and $runtime_string");
-#		  $uediff = 0;
-#	  } 
+      my $diff           = $a[4]?sprintf("%.4f",$a[4]):0;
       
       # Leerzeichen am Ende $timestamp entfernen
       $timestamp         =~ s/\s+$//g;
@@ -3657,7 +3995,7 @@ sub diffval_DoParse($) {
      foreach my $key (sort(keys%{$ncp})) {
          Log3 ($name, 3, $key) ;
      }
- $ncps = join('§', %$ncp);	
+ $ncps     = join('§', %$ncp);	
  $ncpslist = encode_base64($ncps,""); 
  }
   
@@ -3681,6 +4019,7 @@ sub diffval_DoParse($) {
  }
  
  my $rowlist = encode_base64($rows,"");
+ $device     = encode_base64($device,"");
  
  # Background-Laufzeit ermitteln
  my $brt = tv_interval($bst);
@@ -3699,7 +4038,7 @@ sub diffval_ParseDone($) {
   my $hash = $defs{$a[0]};
   my $name = $hash->{NAME};
   my $rowlist    = decode_base64($a[1]);
-  my $device     = $a[2];
+  my $device     = decode_base64($a[2]);
      $device     =~ s/[^A-Za-z\/\d_\.-]/\//g;
   my $reading    = $a[3];
      $reading    =~ s/[^A-Za-z\/\d_\.-]/\//g;
@@ -3713,13 +4052,14 @@ sub diffval_ParseDone($) {
   my $difflimit  = AttrVal($name, "diffAccept", "20");   # legt fest, bis zu welchem Wert Differenzen akzeptoert werden (Ausreißer eliminieren)AttrVal($name, "diffAccept", "20");
   my $erread;
   
+  delete($hash->{HELPER}{RUNNING_PID});
+  
   # Befehl nach Procedure ausführen
   $erread = DbRep_afterproc($hash, "$hash->{LASTCMD}");
   
   if ($err) {
       ReadingsSingleUpdateValue ($hash, "errortext", $err, 1);
       ReadingsSingleUpdateValue ($hash, "state", "error", 1);
-      delete($hash->{HELPER}{RUNNING_PID});
       return;
   }
 
@@ -3775,8 +4115,6 @@ sub diffval_ParseDone($) {
   ReadingsBulkUpdateTimeState($hash,$brt,$rt,($ncpstr||$rowsrej)?"Warning":$state);
   
   readingsEndUpdate($hash, 1);
-
-  delete($hash->{HELPER}{RUNNING_PID});
   
 return;
 }
@@ -3788,7 +4126,7 @@ sub sumval_DoParse($) {
  my ($string) = @_;
  my ($name,$device,$reading,$prop,$ts) = split("\\§", $string);
  my $hash       = $defs{$name};
- my $dbloghash  = $hash->{dbloghash};
+ my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn     = $dbloghash->{dbconn};
  my $dbuser     = $dbloghash->{dbuser};
  my $dblogname  = $dbloghash->{NAME};
@@ -3831,7 +4169,7 @@ sub sumval_DoParse($) {
  my $st = [gettimeofday];  
 
  # DB-Abfrage zeilenweise für jeden Array-Eintrag
- my $arrstr;
+ my ($arrstr,$wrstr,@rsf,@rsn);
  foreach my $row (@ts) {
      my @a                     = split("#", $row);
      my $runtime_string        = $a[0];
@@ -3861,11 +4199,15 @@ sub sumval_DoParse($) {
      Log3 ($name, 5, "DbRep $name - SQL result: $line[0]") if($line[0]);     
 	 
      if(AttrVal($name, "aggregation", "") eq "hour") {
-         my @rsf = split(/[" "\|":"]/,$runtime_string_first);
-         $arrstr .= $runtime_string."#".$line[0]."#".$rsf[0]."_".$rsf[1]."|";  
+         @rsf     = split(/[ :]/,$runtime_string_first);
+         @rsn     = split(/[ :]/,$runtime_string_next);
+         $arrstr .= $runtime_string."#".$line[0]."#".$rsf[0]."_".$rsf[1]."|";
+         $wrstr  .= $runtime_string."#".$line[0]."#".$rsf[0]."_".$rsf[1]."#".$rsn[0]."_".$rsn[1]."|";    # Kombi zum Rückschreiben in die DB
      } else {
-         my @rsf = split(" ",$runtime_string_first);
-         $arrstr .= $runtime_string."#".$line[0]."#".$rsf[0]."|"; 
+         @rsf     = split(" ",$runtime_string_first);
+         @rsn     = split(" ",$runtime_string_next);
+         $arrstr .= $runtime_string."#".$line[0]."#".$rsf[0]."|";
+         $wrstr  .= $runtime_string."#".$line[0]."#".$rsf[0]."#".$rsn[0]."|";    # Kombi zum Rückschreiben in die DB
      }
  }
 
@@ -3878,7 +4220,7 @@ sub sumval_DoParse($) {
  # Ergebnisse in Datenbank schreiben
  my ($wrt,$irowdone);
  if($prop =~ /writeToDB/) {
-     ($wrt,$irowdone,$err) = DbRep_OutputWriteToDB($name,$device,$reading,$arrstr,"sum");
+     ($wrt,$irowdone,$err) = DbRep_OutputWriteToDB($name,$device,$reading,$wrstr,"sum");
      if ($err) {
          Log3 $hash->{NAME}, 2, "DbRep $name - $err"; 
          $err = encode_base64($err,"");
@@ -3889,6 +4231,7 @@ sub sumval_DoParse($) {
   
  # Daten müssen als Einzeiler zurückgegeben werden
  $arrstr = encode_base64($arrstr,"");
+ $device = encode_base64($device,"");
  
  # Background-Laufzeit ermitteln
  my $brt = tv_interval($bst);
@@ -3907,7 +4250,7 @@ sub sumval_ParseDone($) {
   my $hash       = $defs{$a[0]};
   my $name       = $hash->{NAME};
   my $arrstr     = decode_base64($a[1]);
-  my $device     = $a[2];
+  my $device     = decode_base64($a[2]);
      $device     =~ s/[^A-Za-z\/\d_\.-]/\//g;
   my $reading    = $a[3];
      $reading    =~ s/[^A-Za-z\/\d_\.-]/\//g;
@@ -3918,13 +4261,14 @@ sub sumval_ParseDone($) {
   my $reading_runtime_string;
   my $erread;
   
+  delete($hash->{HELPER}{RUNNING_PID});
+  
   # Befehl nach Procedure ausführen
   $erread = DbRep_afterproc($hash, "$hash->{LASTCMD}");
   
    if ($err) {
       ReadingsSingleUpdateValue ($hash, "errortext", $err, 1);
       ReadingsSingleUpdateValue ($hash, "state", "error", 1);
-      delete($hash->{HELPER}{RUNNING_PID});
       return;
   }
   
@@ -3955,9 +4299,7 @@ sub sumval_ParseDone($) {
   
   ReadingsBulkUpdateValue ($hash, "db_lines_processed", $irowdone) if($hash->{LASTCMD} =~ /writeToDB/);
   ReadingsBulkUpdateTimeState($hash,$brt,$rt,$state);
-  readingsEndUpdate($hash, 1);
-  
-  delete($hash->{HELPER}{RUNNING_PID});  
+  readingsEndUpdate($hash, 1); 
   
 return;
 }
@@ -3969,7 +4311,7 @@ sub del_DoParse($) {
  my ($string) = @_;
  my ($name,$table,$device,$reading,$runtime_string_first,$runtime_string_next) = split("\\|", $string);
  my $hash       = $defs{$name};
- my $dbloghash  = $hash->{dbloghash};
+ my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn     = $dbloghash->{dbconn};
  my $dbuser     = $dbloghash->{dbuser};
  my $dblogname  = $dbloghash->{NAME};
@@ -4049,13 +4391,14 @@ sub del_ParseDone($) {
      $reading    =~ s/[^A-Za-z\/\d_\.-]/\//g; 
   my $erread;
   
+  delete($hash->{HELPER}{RUNNING_PID});
+  
   # Befehl nach Procedure ausführen
   $erread = DbRep_afterproc($hash, "delEntries");
   
   if ($err) {
       ReadingsSingleUpdateValue ($hash, "errortext", $err, 1);
       ReadingsSingleUpdateValue ($hash, "state", "error", 1);
-      delete($hash->{HELPER}{RUNNING_PID});
       return;
   }
  
@@ -4082,8 +4425,6 @@ sub del_ParseDone($) {
   ReadingsBulkUpdateTimeState($hash,$brt,$rt,$state);
   
   readingsEndUpdate($hash, 1);
-
-  delete($hash->{HELPER}{RUNNING_PID});
   
 return;
 }
@@ -4094,7 +4435,7 @@ return;
 sub insert_Push($) {
  my ($name)     = @_;
  my $hash       = $defs{$name};
- my $dbloghash  = $hash->{dbloghash};
+ my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn     = $dbloghash->{dbconn};
  my $dbuser     = $dbloghash->{dbuser};
  my $dblogname  = $dbloghash->{NAME};
@@ -4197,10 +4538,11 @@ sub insert_Done($) {
   my $i_value     = delete $hash->{HELPER}{I_VALUE};
   my $i_unit      = delete $hash->{HELPER}{I_UNIT}; 
   
+  delete($hash->{HELPER}{RUNNING_PID});
+  
   if ($err) {
       ReadingsSingleUpdateValue ($hash, "errortext", $err, 1);
       ReadingsSingleUpdateValue ($hash, "state", "error", 1);
-      delete($hash->{HELPER}{RUNNING_PID});
       return;
   } 
 
@@ -4216,8 +4558,6 @@ sub insert_Done($) {
   readingsEndUpdate($hash, 1);
   
   Log3 ($name, 5, "DbRep $name - Inserted into database $hash->{DATABASE} table 'history': Timestamp: $i_timestamp, Device: $i_device, Type: $i_type, Event: $i_event, Reading: $i_reading, Value: $i_value, Unit: $i_unit");  
-
-  delete($hash->{HELPER}{RUNNING_PID});
   
 return;
 }
@@ -4229,13 +4569,13 @@ sub currentfillup_Push($) {
  my ($string)     = @_;
  my ($name,$device,$reading,$runtime_string_first,$runtime_string_next) = split("\\|", $string);
  my $hash       = $defs{$name};
- my $dbloghash  = $hash->{dbloghash};
+ my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn     = $dbloghash->{dbconn};
  my $dbuser     = $dbloghash->{dbuser};
  my $dblogname  = $dbloghash->{NAME};
  my $dbpassword = $attr{"sec$dblogname"}{secret};
  my $utf8       = defined($hash->{UTF8})?$hash->{UTF8}:0;
- my ($err,$sth,$sql,$devs,$danz,$ranz);
+ my ($err,$sth,$sql,$selspec,$addon,@dwc,@rwc);
  
  # Background-Startzeit
  my $bst = [gettimeofday];
@@ -4255,8 +4595,6 @@ sub currentfillup_Push($) {
  # ist Zeiteingrenzung und/oder Aggregation gesetzt ? (wenn ja -> "?" in SQL sonst undef) 
  my ($IsTimeSet,$IsAggrSet) = DbRep_checktimeaggr($hash); 
  Log3 ($name, 5, "DbRep $name - IsTimeSet: $IsTimeSet, IsAggrSet: $IsAggrSet"); 
- 
- ($devs,$danz,$reading,$ranz) = DbRep_specsForSql($hash,$device,$reading);
   
  # SQL-Startzeit
  my $st = [gettimeofday];
@@ -4264,82 +4602,34 @@ sub currentfillup_Push($) {
  # insert history mit/ohne primary key
  # SQL zusammenstellen für DB-Operation
  if ($usepkc && $dbloghash->{MODEL} eq 'MYSQL') {
-     $sql  = "INSERT IGNORE INTO current (TIMESTAMP,DEVICE,READING) SELECT timestamp,device,reading FROM history where ";
-     $sql .= "DEVICE LIKE '$devs' AND "      if($danz <= 1 && $devs !~ m(^%$) && $devs =~ m(\%));
-     $sql .= "DEVICE = '$devs' AND "         if($danz <= 1 && $devs !~ m(\%));
-     $sql .= "DEVICE IN ($devs) AND "        if($danz > 1);
-     $sql .= "READING LIKE '$reading' AND "  if($ranz <= 1 && $reading !~ m(^%$) && $reading =~ m(\%));
-     $sql .= "READING = '$reading' AND "     if($ranz <= 1 && $reading !~ m(\%));
-     $sql .= "READING IN ($reading) AND "    if($ranz > 1);
-     if ($IsTimeSet) {
-	     $sql .= "TIMESTAMP >= '$runtime_string_first' AND TIMESTAMP < '$runtime_string_next' ";
-     } else {
-         $sql .= "1 ";
-     }
-	 $sql .= "group by timestamp,device,reading ;";
+     $selspec = "INSERT IGNORE INTO current (TIMESTAMP,DEVICE,READING) SELECT timestamp,device,reading FROM history where";
+	 $addon   = "group by timestamp,device,reading";
 	 
  } elsif ($usepkc && $dbloghash->{MODEL} eq 'SQLITE') {
-     $sql  = "INSERT OR IGNORE INTO current (TIMESTAMP,DEVICE,READING) SELECT timestamp,device,reading FROM history where ";
-     $sql .= "DEVICE LIKE '$devs' AND "      if($danz <= 1 && $devs !~ m(^%$) && $devs =~ m(\%));
-     $sql .= "DEVICE = '$devs' AND "         if($danz <= 1 && $devs !~ m(\%));
-     $sql .= "DEVICE IN ($devs) AND "        if($danz > 1);
-     $sql .= "READING LIKE '$reading' AND "  if($ranz <= 1 && $reading !~ m(^%$) && $reading =~ m(\%));
-     $sql .= "READING = '$reading' AND "     if($ranz <= 1 && $reading !~ m(\%));
-     $sql .= "READING IN ($reading) AND "    if($ranz > 1);
-     if ($IsTimeSet) {
-	     $sql .= "TIMESTAMP >= '$runtime_string_first' AND TIMESTAMP < '$runtime_string_next' ";
-     } else {
-         $sql .= "1 ";
-     }
-	 $sql .= "group by timestamp,device,reading ;";
+     $selspec = "INSERT OR IGNORE INTO current (TIMESTAMP,DEVICE,READING) SELECT timestamp,device,reading FROM history where";
+	 $addon   = "group by timestamp,device,reading";
  
  } elsif ($usepkc && $dbloghash->{MODEL} eq 'POSTGRESQL') {
-         $sql  = "INSERT INTO current (DEVICE,TIMESTAMP,READING) SELECT device, (array_agg(timestamp ORDER BY reading ASC))[1], reading FROM history where ";
-         $sql .= "DEVICE LIKE '$devs' AND "      if($danz <= 1 && $devs !~ m(^%$) && $devs =~ m(\%));
-         $sql .= "DEVICE = '$devs' AND "         if($danz <= 1 && $devs !~ m(\%));
-         $sql .= "DEVICE IN ($devs) AND "        if($danz > 1);
-         $sql .= "READING LIKE '$reading' AND "  if($ranz <= 1 && $reading !~ m(^%$) && $reading =~ m(\%));
-         $sql .= "READING = '$reading' AND "     if($ranz <= 1 && $reading !~ m(\%));
-         $sql .= "READING IN ($reading) AND "    if($ranz > 1);
-         if ($IsTimeSet) {
-	         $sql .= "TIMESTAMP >= '$runtime_string_first' AND TIMESTAMP < '$runtime_string_next' ";
-         } else {
-             $sql .= "true ";
-         }
-	 $sql .= "group by device,reading ON CONFLICT ($pkc) DO NOTHING; ";
+     $selspec = "INSERT INTO current (DEVICE,TIMESTAMP,READING) SELECT device, (array_agg(timestamp ORDER BY reading ASC))[1], reading FROM history where";
+	 $addon   = "group by device,reading ON CONFLICT ($pkc) DO NOTHING";
  
  } else {
      if($dbloghash->{MODEL} ne 'POSTGRESQL') {
 	     # MySQL und SQLite
-         $sql  = "INSERT INTO current (TIMESTAMP,DEVICE,READING) SELECT timestamp,device,reading FROM history where ";
-         $sql .= "DEVICE LIKE '$devs' AND "      if($danz <= 1 && $devs !~ m(^%$) && $devs =~ m(\%));
-         $sql .= "DEVICE = '$devs' AND "         if($danz <= 1 && $devs !~ m(\%));
-         $sql .= "DEVICE IN ($devs) AND "        if($danz > 1);
-         $sql .= "READING LIKE '$reading' AND "  if($ranz <= 1 && $reading !~ m(^%$) && $reading =~ m(\%));
-         $sql .= "READING = '$reading' AND "     if($ranz <= 1 && $reading !~ m(\%));
-         $sql .= "READING IN ($reading) AND "    if($ranz > 1);
-         if ($IsTimeSet) {
-	         $sql .= "TIMESTAMP >= '$runtime_string_first' AND TIMESTAMP < '$runtime_string_next' ";
-         } else {
-             $sql .= "1 ";
-         }
-	     $sql .= "group by device,reading ;";
+         $selspec = "INSERT INTO current (TIMESTAMP,DEVICE,READING) SELECT timestamp,device,reading FROM history where";
+	     $addon   = "group by device,reading";
 	 } else {
 	     # PostgreSQL
-         $sql  = "INSERT INTO current (DEVICE,TIMESTAMP,READING) SELECT device, (array_agg(timestamp ORDER BY reading ASC))[1], reading FROM history where ";
-         $sql .= "DEVICE LIKE '$devs' AND "      if($danz <= 1 && $devs !~ m(^%$) && $devs =~ m(\%));
-         $sql .= "DEVICE = '$devs' AND "         if($danz <= 1 && $devs !~ m(\%));
-         $sql .= "DEVICE IN ($devs) AND "        if($danz > 1);
-         $sql .= "READING LIKE '$reading' AND "  if($ranz <= 1 && $reading !~ m(^%$) && $reading =~ m(\%));
-         $sql .= "READING = '$reading' AND "     if($ranz <= 1 && $reading !~ m(\%));
-         $sql .= "READING IN ($reading) AND "    if($ranz > 1);
-         if ($IsTimeSet) {
-	         $sql .= "TIMESTAMP >= '$runtime_string_first' AND TIMESTAMP < '$runtime_string_next' ";
-         } else {
-             $sql .= "true ";
-         }
-	     $sql .= "group by device,reading;";
+         $selspec = "INSERT INTO current (DEVICE,TIMESTAMP,READING) SELECT device, (array_agg(timestamp ORDER BY reading ASC))[1], reading FROM history where";
+	     $addon   = "group by device,reading";
 	 }
+ }
+ 
+ # SQL-Statement zusammenstellen
+ if ($IsTimeSet || $IsAggrSet) {
+	 $sql = DbRep_createCommonSql($hash,$selspec,$device,$reading,"'$runtime_string_first'","'$runtime_string_next'",$addon);
+ } else {
+	 $sql = DbRep_createCommonSql($hash,$selspec,$device,$reading,undef,undef,$addon); 
  }
  
  # Log SQL Statement
@@ -4399,10 +4689,11 @@ sub currentfillup_Done($) {
   undef $device if ($device =~ m(^%$));
   undef $reading if ($reading =~ m(^%$));
   
+  delete($hash->{HELPER}{RUNNING_PID});
+  
   if ($err) {
       ReadingsSingleUpdateValue ($hash, "errortext", $err, 1);
       ReadingsSingleUpdateValue ($hash, "state", "error", 1);
-      delete($hash->{HELPER}{RUNNING_PID});
       return;
   } 
 
@@ -4421,8 +4712,6 @@ sub currentfillup_Done($) {
   readingsEndUpdate($hash, 1);
   
   Log3 ($name, 3, "DbRep $name - Table '$hash->{DATABASE}'.'current' filled up with rows: $rowstr");
-
-  delete($hash->{HELPER}{RUNNING_PID});
   
 return;
 }
@@ -4434,7 +4723,7 @@ sub change_Push($) {
  my ($string) = @_;
  my ($name,$device,$reading,$runtime_string_first,$runtime_string_next) = split("\\|", $string);
  my $hash       = $defs{$name};
- my $dbloghash  = $hash->{dbloghash};
+ my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn     = $dbloghash->{dbconn};
  my $dbuser     = $dbloghash->{dbuser};
  my $dblogname  = $dbloghash->{NAME};
@@ -4479,12 +4768,12 @@ sub change_Push($) {
 	 $sth = $dbh->prepare($sql) ;
  
  } elsif ($renmode eq "readren") {
-     $old = delete $hash->{HELPER}{OLDREAD};        # Wert besteht aus [device]:old_readingname
-     ($dev,$old) = split(":",$old,2);
+     $old = delete $hash->{HELPER}{OLDREAD};              
+     ($dev,$old) = split(":",$old,2) if($old =~ /:/);        # Wert besteht aus [device]:old_readingname, device ist optional
      $new = delete $hash->{HELPER}{NEWREAD};
 	 
 	 # SQL zusammenstellen für DB-Operation
-     Log3 ($name, 5, "DbRep $name -> Rename old reading name \"$old\" ".($dev?"(of device $dev)":"")." to new reading name \"$new\" in database $dblogname ");
+     Log3 ($name, 5, "DbRep $name -> Rename old reading name \"".($dev?"$dev:$old":"$old")."\" to new reading name \"$new\" in database $dblogname ");
 	 
 	 # prepare DB operation
 	 $old =~ s/'/''/g;       # escape ' with ''
@@ -4536,7 +4825,7 @@ sub changeval_Push($) {
  my ($string) = @_;
  my ($name,$device,$reading,$runtime_string_first,$runtime_string_next,$ts) = split("\\§", $string);
  my $hash       = $defs{$name};
- my $dbloghash  = $hash->{dbloghash};
+ my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn     = $dbloghash->{dbconn};
  my $dbuser     = $dbloghash->{dbuser};
  my $dblogname  = $dbloghash->{NAME};
@@ -4581,11 +4870,12 @@ sub changeval_Push($) {
 	 $new =~ s/'/''/g;       # escape ' with ''
  
      # SQL zusammenstellen für DB-Update
-     my $addon = $old =~ /%/?"WHERE VALUE LIKE '$old'":"WHERE VALUE='$old'";
+     my $addon   = $old =~ /%/?"WHERE VALUE LIKE '$old'":"WHERE VALUE='$old'";
+     my $selspec = "UPDATE $table SET TIMESTAMP=TIMESTAMP,VALUE='$new' $addon AND ";
      if ($IsTimeSet) {
-         $sql = DbRep_createUpdateSql($hash,$table,"TIMESTAMP=TIMESTAMP,VALUE='$new' $addon",$device,$reading,"'$runtime_string_first'","'$runtime_string_next'",'');
+         $sql = DbRep_createCommonSql($hash,$selspec,$device,$reading,"'$runtime_string_first'","'$runtime_string_next'",'');
      } else {
-         $sql = DbRep_createUpdateSql($hash,$table,"TIMESTAMP=TIMESTAMP,VALUE='$new' $addon",$device,$reading,undef,undef,'');
+         $sql = DbRep_createCommonSql($hash,$selspec,$device,$reading,undef,undef,'');
      }
 	 Log3 ($name, 4, "DbRep $name - SQL execute: $sql"); 
 	 $sth = $dbh->prepare($sql) ;
@@ -4666,7 +4956,7 @@ sub changeval_Push($) {
              $value = $VALUE if(defined $VALUE);
  	         $unit  = $UNIT  if(defined $UNIT);
              # Daten auf maximale Länge beschneiden (DbLog-Funktion !)
-             (undef,undef,undef,undef,$value,$unit) = DbLog_cutCol($hash->{dbloghash},"1","1","1","1",$value,$unit);
+             (undef,undef,undef,undef,$value,$unit) = DbLog_cutCol($dbloghash,"1","1","1","1",$value,$unit);
              
              $value =~ s/'/''/g;       # escape ' with ''
              $unit  =~ s/'/''/g;       # escape ' with ''
@@ -4724,13 +5014,14 @@ sub change_Done($) {
   
   my $renmode = delete $hash->{HELPER}{RENMODE};
   
+  delete($hash->{HELPER}{RUNNING_PID});
+  
   # Befehl nach Procedure ausführen
   my $erread = DbRep_afterproc($hash, $renmode);
   
   if ($err) {
       ReadingsSingleUpdateValue ($hash, "errortext", $err, 1);
       ReadingsSingleUpdateValue ($hash, "state", "error", 1);
-      delete($hash->{HELPER}{RUNNING_PID});
       return;
   } 
 
@@ -4768,8 +5059,6 @@ sub change_Done($) {
       Log3 ($name, 3, "DbRep ".(($hash->{ROLE} eq "Agent")?"Agent ":"")."$name - WARNING - old reading \"$old\" was not found in database \"$hash->{DATABASE}\" ") if($renmode eq "readren"); 	
 	  Log3 ($name, 3, "DbRep ".(($hash->{ROLE} eq "Agent")?"Agent ":"")."$name - WARNING - old value \"$old\" not found in database \"$hash->{DATABASE}\" ") if($renmode eq "changeval");        
   }
-
-  delete($hash->{HELPER}{RUNNING_PID});
   
 return;
 }
@@ -4781,7 +5070,7 @@ sub fetchrows_DoParse($) {
  my ($string) = @_;
  my ($name,$table,$device,$reading,$runtime_string_first,$runtime_string_next) = split("\\|", $string);
  my $hash       = $defs{$name};
- my $dbloghash  = $hash->{dbloghash};
+ my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn     = $dbloghash->{dbconn};
  my $dbuser     = $dbloghash->{dbuser};
  my $dblogname  = $dbloghash->{NAME};
@@ -4874,16 +5163,18 @@ sub fetchrows_ParseDone($) {
   my $name       = $hash->{NAME};
   my $reading    = AttrVal($name, "reading", undef);
   my $limit      = AttrVal($name, "limit", 1000);
+  my $fvfn       = AttrVal($name, "fetchValueFn", undef);
   my $color      = "<html><span style=\"color: #".AttrVal($name, "fetchMarkDuplicates", "000000").";\">";  # Highlighting doppelter DB-Einträge
   $color =~ s/#// if($color =~ /red|blue|brown|green|orange/);
   my $ecolor     = "</span></html>";                                                                       # Ende Highlighting
   my @row;
   my $reading_runtime_string;
   
+  delete($hash->{HELPER}{RUNNING_PID});
+  
   if ($err) {
       ReadingsSingleUpdateValue ($hash, "errortext", $err, 1);
       ReadingsSingleUpdateValue ($hash, "state", "error", 1);
-      delete($hash->{HELPER}{RUNNING_PID});
       return;
   } 
   
@@ -4945,6 +5236,19 @@ sub fetchrows_ParseDone($) {
               $reading_runtime_string = $ts."__".$dz."__".$dev."__".$rea.$zs;
           }
       }
+      
+      if($fvfn) {
+          my $VALUE = $val;
+          if( $fvfn =~ m/^\s*(\{.*\})\s*$/s ) {
+              $fvfn = $1;
+          } else {
+              $fvfn = "";
+          }
+          if ($fvfn) {
+              eval $fvfn;
+              $val = $VALUE if(!$@); 
+          }          
+      }
      
 	  ReadingsBulkUpdateValue($hash, $reading_runtime_string, $val);
   }
@@ -4955,8 +5259,6 @@ sub fetchrows_ParseDone($) {
   ReadingsBulkUpdateTimeState($hash,$brt,$rt,($nrows-$limit>0)?
       "<html>done - Warning: present rows exceed specified limit, adjust attribute <a href='https://fhem.de/commandref${sfx}.html#limit' target='_blank'>limit</a></html>":"done");
   readingsEndUpdate($hash, 1);
-
-  delete($hash->{HELPER}{RUNNING_PID});
   
 return;
 }
@@ -4968,14 +5270,15 @@ sub deldoublets_DoParse($) {
  my ($string) = @_;
  my ($name,$opt,$device,$reading,$ts) = split("\\§", $string);
  my $hash       = $defs{$name};
- my $dbloghash  = $hash->{dbloghash};
+ my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn     = $dbloghash->{dbconn};
  my $dbuser     = $dbloghash->{dbuser};
  my $dblogname  = $dbloghash->{NAME};
+ my $model      = $dbloghash->{MODEL};
  my $dbpassword = $attr{"sec$dblogname"}{secret};
  my $utf8       = defined($hash->{UTF8})?$hash->{UTF8}:0;
  my $limit      = AttrVal($name, "limit", 1000);
- my ($err,$dbh,$sth,$sql,$rowlist,$selspec,$st,$table,$addon);
+ my ($err,$dbh,$sth,$sql,$rowlist,$selspec,$st,$table,$addon,$dsql);
  
  # Background-Startzeit
  my $bst = [gettimeofday];
@@ -4992,14 +5295,11 @@ sub deldoublets_DoParse($) {
  Log3 ($name, 5, "DbRep $name - Timestamp-Array: \n@ts"); 
  
  # mehrfache Datensätze finden
- # SELECT TIMESTAMP, DEVICE, READING, VALUE, count(*) FROM history WHERE TIMESTAMP > '2018-11-01 00:00:00' GROUP BY TIMESTAMP, DEVICE, READING, VALUE ASC HAVING count(*) > 1
  $table   = "history";
  $selspec = "TIMESTAMP,DEVICE,READING,VALUE,count(*)";
- $addon   = "GROUP BY TIMESTAMP, DEVICE, READING, VALUE ASC HAVING count(*) > 1";
- if($dbloghash->{MODEL} eq 'SQLITE') {
-     $addon = "GROUP BY TIMESTAMP, DEVICE, READING, VALUE HAVING count(*) > 1 ORDER BY TIMESTAMP ASC";     # Forum: https://forum.fhem.de/index.php/topic,53584.msg914489.html#msg914489
- }
-  
+ # $addon   = "GROUP BY TIMESTAMP, DEVICE, READING, VALUE ASC HAVING count(*) > 1";                        # 18.10.2019 / V 8.28.2
+ $addon   = "GROUP BY TIMESTAMP, DEVICE, READING, VALUE HAVING count(*) > 1 ORDER BY TIMESTAMP ASC";       # Forum: https://forum.fhem.de/index.php/topic,53584.msg914489.html#msg914489
+                                                                                                           # und Forum: https://forum.fhem.de/index.php/topic,104593.msg985007.html#msg985007
  # SQL zusammenstellen für DB-Abfrage
  $sql = DbRep_createSelectSql($hash,$table,$selspec,$device,$reading,"?","?",$addon);
  eval{$sth = $dbh->prepare_cached($sql);};
@@ -5043,18 +5343,19 @@ sub deldoublets_DoParse($) {
      # SQL-Laufzeit ermitteln
      $rt = $rt+tv_interval($st);
         
-     # Beginn Löschlogik, Zusammenstellen der löschenden DS (warping)
+     # Beginn Löschlogik, Zusammenstellen der zu löschenden DS (warping)
 	 # Array @warp -> die zu löschenden Datensätze
      my (@warp);
      my $i = 0;
      foreach my $nr (map { $_->[1]."_ESC_".$_->[2]."_ESC_".($_->[0] =~ s/ /_ESC_/r)."_ESC_".$_->[3]."_|_".($_->[4]-1) } @{$sth->fetchall_arrayref()}) {     
          # Reihenfolge geändert in: DEVICE,READING,DATE,TIME,VALUE,count(*)
          if($opt =~ /adviceDelete/) {
-             push(@warp,$nr) if($#todel+1 < $limit);                   # die zu löschenden Datensätze (nur zur Anzeige) 
+             push(@warp,$i."_".$nr) if($#todel+1 < $limit);                   # die zu löschenden Datensätze (nur zur Anzeige) 
          } else {        
-             push (@warp,$nr);                                         # Array der zu löschenden Datensätze
+             push(@warp,$i."_".$nr);                                          # Array der zu löschenden Datensätze
          }
-         my $c = (split("|",$nr))[-1];
+         my $c   = (split("|",$nr))[-1];
+         Log3 ($name, 4, "DbRep $name - WARP: $nr, ntodel: $ntodel, c: $c");
          $ntodel = $ntodel + $c;
          
          if ($opt =~ /delete/) {                                       # delete Datensätze
@@ -5064,10 +5365,14 @@ sub deldoublets_DoParse($) {
              $dev  =~ s/'/''/g;                                 # escape ' with ''
              $read =~ s/'/''/g;                                 # escape ' with ''
              $val  =~ s/'/''/g;                                 # escape ' with ''
+			 $val  =~ s/\\/\\\\/g if($model eq "MYSQL");        # escape \ with \\ für MySQL
              $st = [gettimeofday];
-             my $dsql = "delete FROM $table WHERE TIMESTAMP = '$dt' AND DEVICE = '$dev' AND READING = '$read' AND VALUE = '$val' limit $limit;";
-             my $sthd = $dbh->prepare($dsql); 
-             Log3 ($name, 4, "DbRep $name - SQL execute: $dsql"); 
+             if($model =~ /MYSQL|SQLITE/) {
+                 $dsql = "delete FROM $table WHERE TIMESTAMP = '$dt' AND DEVICE = '$dev' AND READING = '$read' AND VALUE = '$val' limit $limit;";
+             } elsif ($model eq "POSTGRESQL") {
+                 $dsql = "DELETE FROM $table WHERE ctid = any (array(SELECT ctid FROM $table WHERE TIMESTAMP = '$dt' AND DEVICE = '$dev' AND READING = '$read' AND VALUE = '$val' ORDER BY timestamp LIMIT $limit));";
+             }
+             my $sthd = $dbh->prepare($dsql);  
                  
              eval {$sthd->execute();};
              if ($@) {
@@ -5128,16 +5433,31 @@ sub delseqdoubl_DoParse($) {
  my ($string) = @_;
  my ($name,$opt,$device,$reading,$ts) = split("\\§", $string);
  my $hash       = $defs{$name};
- my $dbloghash  = $hash->{dbloghash};
+ my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn     = $dbloghash->{dbconn};
  my $dbuser     = $dbloghash->{dbuser};
  my $dblogname  = $dbloghash->{NAME};
  my $dbpassword = $attr{"sec$dblogname"}{secret};
  my $utf8       = defined($hash->{UTF8})?$hash->{UTF8}:0;
  my $limit      = AttrVal($name, "limit", 1000);
- my $var        = AttrVal($name, "seqDoubletsVariance", undef);
+ my $var        = AttrVal($name, "seqDoubletsVariance", undef);                  # allgemeine Varianz
  my $table      = "history";
- my ($err,$dbh,$sth,$sql,$rowlist,$nrows,$selspec,$st,$var1,$var2);
+ my ($err,$dbh,$sth,$sql,$rowlist,$nrows,$selspec,$st,$varo,$varu);
+ 
+ # positive und negative Flankenvarianz spezifizieren
+ my $edge = "balanced";
+ if($var && $var =~ /EDGE=/) {
+     ($var,$edge) = split("EDGE=", $var);
+ }
+ my ($varpos,$varneg);
+ if (defined $var) {
+     ($varpos,$varneg) = split(" ",$var);
+     $varpos = DbRep_trim($varpos);
+     $varneg = $varpos if(!$varneg);
+     $varneg = DbRep_trim($varneg);
+ }
+ Log3 ($name, 4, "DbRep $name - delSeqDoublets params -> positive variance: ".(defined $varpos?$varpos:"").", negative variance: ".(defined $varneg?$varneg:"").", EDGE: $edge");
+
  
  # Background-Startzeit
  my $bst = [gettimeofday];
@@ -5200,27 +5520,46 @@ sub delseqdoubl_DoParse($) {
      my ($or,$oor,$odev,$oread,$oval,$ooval,$ndev,$nread,$nval);
      my $i = 0;
      foreach my $nr (map { $_->[0]."_ESC_".$_->[1]."_ESC_".($_->[2] =~ s/ /_ESC_/r)."_ESC_".$_->[3] } @{$sth->fetchall_arrayref()}) {               
-         ($ndev,$nread,undef,undef,$nval) = split("_ESC_", $nr);    # Werte des aktuellen Elements
-	     $or = pop @sel;                                            # das letzte Element der Liste                         
-         ($odev,$oread,undef,undef,$oval) = split("_ESC_", $or);    # Value des letzten Elements      
-         if (looks_like_number($oval) && $var) {                    # Varianz +- falls $val numerischer Wert
-             $var1 = $oval + $var;
-             $var2 = $oval - $var;
+         ($ndev,$nread,undef,undef,$nval) = split("_ESC_", $nr);                     # Werte des aktuellen Elements
+	     $or = pop @sel;                                                             # das letzte Element der Liste                         
+         ($odev,$oread,undef,undef,$oval) = split("_ESC_", $or);                     # Value des letzten Elements      
+         
+         if (looks_like_number($oval) && defined $varpos && defined $varneg) {       # unterschiedliche Varianz +/- für numerische Werte
+             $varo = $oval + $varpos;
+             $varu = $oval - $varneg;
+         } elsif (looks_like_number($oval) && defined $varpos && !defined $varneg) { # identische Varianz +/- für numerische Werte
+             $varo = $oval + $varpos;
+             $varu = $oval - $varpos;
          } else {
-             undef $var1;
-             undef $var2;
+             undef $varo;
+             undef $varu;
          }
 	     $oor = pop @sel;                                           # das vorletzte Element der Liste
 		 $ooval = (split '_ESC_', $oor)[-1];                        # Value des vorletzten Elements
-		 if ($ndev.$nread ne $odev.$oread) {
+		 # Log3 ($name, 1, "DbRep $name - OOVAL: $ooval, OVAL: $oval, VARO: $varo, VARU: $varu"); 
+         
+         if ($ndev.$nread ne $odev.$oread) {
              $i = 0;                                                # neues Device/Reading in einer Periode -> ooor soll erhalten bleiben
 		     push (@sel,$oor) if($oor);
 		     push (@sel,$or) if($or);
 		     push (@sel,$nr);
-		 } elsif ($i>=2 && ($ooval eq $oval && $oval eq $nval) || ($i>=2 && $var1 && $var2 && ($ooval <= $var1) && ($var2 <= $ooval) && ($nval <= $var1) && ($var2 <= $nval)) ) {
-		     push (@sel,$oor);
-		     push (@sel,$nr);
-             push (@warp,$or);                                      # Array der zu löschenden Datensätze				 
+		 
+         } elsif ($i>=2 && ($ooval eq $oval && $oval eq $nval) || 
+                 ($i>=2 && $varo && $varu && ($ooval <= $varo) && ($varu <= $ooval) && ($nval <= $varo) && ($varu <= $nval)) ) {
+             if ($edge =~ /negative/i && ($ooval > $oval)) {              
+                 push (@sel,$oor);                                  # negative Flanke -> der fallende DS und desssen Vorgänger 
+                 push (@sel,$or);                                   # werden behalten obwohl im Löschkorridor
+                 push (@sel,$nr);                                                     
+             } elsif ($edge =~ /positive/i && ($ooval < $oval)) {              
+                 push (@sel,$oor);                                  # positive Flanke -> der steigende DS und desssen Vorgänger 
+                 push (@sel,$or);                                   # werden behalten obwohl im Löschkorridor
+                 push (@sel,$nr);                                                     
+             } else {
+                 push (@sel,$oor);                                  # Array der zu behaltenden Datensätze
+                 push (@sel,$nr);                                   # Array der zu behaltenden Datensätze
+                 push (@warp,$or);                                  # Array der zu löschenden Datensätze                         
+             }
+             
              if ($opt =~ /delete/ && $or) {                         # delete Datensätze
 		         my ($dev,$read,$date,$time,$val) = split("_ESC_", $or);
 				 my $dt = $date." ".$time;
@@ -5264,10 +5603,10 @@ sub delseqdoubl_DoParse($) {
      $nremain = $nremain + $#sel+1 if(@sel);
      $ntodel = $ntodel + $#warp+1 if(@warp);
      my $sum = $nremain+$ntodel;
-     Log3 ($name, 3, "DbRep $name -> rows analyzed by \"$hash->{LASTCMD}\": $sum") if($sum && $opt =~ /advice/); 
+     Log3 ($name, 3, "DbRep $name - rows analyzed by \"$hash->{LASTCMD}\": $sum") if($sum && $opt =~ /advice/); 
  }
  
- Log3 ($name, 3, "DbRep $name -> rows deleted by \"$hash->{LASTCMD}\": $ndel") if($ndel);
+ Log3 ($name, 3, "DbRep $name - rows deleted by \"$hash->{LASTCMD}\": $ndel") if($ndel);
   
  my $retn = ($opt =~ /adviceRemain/)?$nremain:($opt =~ /adviceDelete/)?$ntodel:$ndel; 
 
@@ -5282,7 +5621,7 @@ sub delseqdoubl_DoParse($) {
  }
  
  use warnings;
- Log3 ($name, 5, "DbRep $name -> row result list:\n$rowlist");
+ Log3 ($name, 5, "DbRep $name - row result list:\n$rowlist");
 
  $dbh->disconnect;
  
@@ -5318,10 +5657,11 @@ sub delseqdoubl_ParseDone($) {
   my $reading_runtime_string;
   my $erread;
   
+  delete($hash->{HELPER}{RUNNING_PID});
+  
   if ($err) {
       ReadingsSingleUpdateValue ($hash, "errortext", $err, 1);
       ReadingsSingleUpdateValue ($hash, "state", "error", 1);
-      delete($hash->{HELPER}{RUNNING_PID});
       return;
   } 
   
@@ -5365,7 +5705,6 @@ sub delseqdoubl_ParseDone($) {
       "<html>done - Warning: not all items are shown, adjust attribute <a href='https://fhem.de/commandref${sfx}.html#limit' target='_blank'>limit</a> if you want see more</html>":"done");
   readingsEndUpdate($hash, 1);
 
-  delete($hash->{HELPER}{RUNNING_PID});
 return;
 }
 
@@ -5376,7 +5715,7 @@ sub expfile_DoParse($) {
  my ($string) = @_;
  my ($name, $device, $reading, $rsf, $file, $ts) = split("\\§", $string);
  my $hash       = $defs{$name};
- my $dbloghash  = $hash->{dbloghash};
+ my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn     = $dbloghash->{dbconn};
  my $dbuser     = $dbloghash->{dbuser};
  my $dblogname  = $dbloghash->{NAME};
@@ -5417,15 +5756,16 @@ sub expfile_DoParse($) {
      }
  }
  
- Log3 ($name, 4, "DbRep $name - Export data to file: $file ".($ml?"splitted to parts of $ml lines":"")  );
- 
  $rsf =~ s/[:\s]/_/g; 
- my ($f,$e) = split(/\./,$file);
+ my ($f,$e) = $file =~ /(.*)\.(.*)/;
  $e    = $e?$e:"";
  $f    =~ s/%TSB/$rsf/g;
  my @t = localtime;
  $f    = ResolveDateWildcards($f, @t);
  my $outfile = $f.$part.$e;
+ 
+ Log3 ($name, 4, "DbRep $name - Export data to file: $outfile ".($ml?"splitted to parts of $ml lines":"")  );
+  
  if (open(FH, ">", $outfile)) {
      binmode (FH);
  } else {
@@ -5530,13 +5870,14 @@ sub expfile_ParseDone($) {
   my $outfile    = $a[6];
   my $erread;
   
+  delete($hash->{HELPER}{RUNNING_PID});
+  
   # Befehl nach Procedure ausführen
   $erread = DbRep_afterproc($hash, "export");
   
   if ($err) {
       ReadingsSingleUpdateValue ($hash, "errortext", $err, 1);
       ReadingsSingleUpdateValue ($hash, "state", "error", 1);
-      delete($hash->{HELPER}{RUNNING_PID});
       return;
   } 
  
@@ -5552,8 +5893,6 @@ sub expfile_ParseDone($) {
   ReadingsBulkUpdateValue ($hash, $export_string, $nrows); 
   ReadingsBulkUpdateTimeState($hash,$brt,$rt,$state);
   readingsEndUpdate($hash, 1);
-
-  delete($hash->{HELPER}{RUNNING_PID});
   
 return;
 }
@@ -5565,11 +5904,11 @@ sub impfile_Push($) {
  my ($string) = @_;
  my ($name, $rsf, $file) = split("\\|", $string);
  my $hash       = $defs{$name};
- my $dbloghash  = $hash->{dbloghash};
+ my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn     = $dbloghash->{dbconn};
  my $dbuser     = $dbloghash->{dbuser};
  my $dblogname  = $dbloghash->{NAME};
- my $dbmodel    = $hash->{dbloghash}{MODEL};
+ my $dbmodel    = $dbloghash->{MODEL};
  my $dbpassword = $attr{"sec$dblogname"}{secret};
  my $utf8       = defined($hash->{UTF8})?$hash->{UTF8}:0;
  my $err=0;
@@ -5729,13 +6068,14 @@ sub impfile_PushDone($) {
   my $infile     = $a[4];
   my $erread;
   
+  delete($hash->{HELPER}{RUNNING_PID});
+  
   # Befehl nach Procedure ausführen
   $erread = DbRep_afterproc($hash, "import");
   
   if ($err) {
       ReadingsSingleUpdateValue ($hash, "errortext", $err, 1);
       ReadingsSingleUpdateValue ($hash, "state", "error", 1);
-      delete($hash->{HELPER}{RUNNING_PID});
       return;
   } 
  
@@ -5751,8 +6091,6 @@ sub impfile_PushDone($) {
   readingsEndUpdate($hash, 1);
 
   Log3 ($name, 3, "DbRep $name - Number of imported datasets to $hash->{DATABASE} from file $infile: $irowdone");  
-
-  delete($hash->{HELPER}{RUNNING_PID});
   
 return;
 }
@@ -5766,25 +6104,22 @@ sub sqlCmd_DoParse($) {
   my ($string) = @_;
   my ($name, $opt, $runtime_string_first, $runtime_string_next, $cmd) = split("\\|", $string);
   my $hash       = $defs{$name};
-  my $dbloghash  = $hash->{dbloghash};
+  my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
   my $dbconn     = $dbloghash->{dbconn};
   my $dbuser     = $dbloghash->{dbuser};
   my $dblogname  = $dbloghash->{NAME};
   my $dbpassword = $attr{"sec$dblogname"}{secret};
   my $utf8       = defined($hash->{UTF8})?$hash->{UTF8}:0;
   my $srs        = AttrVal($name, "sqlResultFieldSep", "|");
-  my ($err,@pms);
+  my ($err,$dbh,@pms);
 
   # Background-Startzeit
   my $bst = [gettimeofday];
 
-  my $dbh;
-  eval {$dbh = DBI->connect("dbi:$dbconn", $dbuser, $dbpassword, { PrintError => 0, RaiseError => 1, AutoCommit => 1, AutoInactiveDestroy => 1, mysql_enable_utf8 => $utf8 });};
- 
-  if ($@) {
-     $err = encode_base64($@,"");
-     Log3 ($name, 2, "DbRep $name - $@");
-     return "$name|''|$opt|$cmd|''|''|$err";
+  ($err,$dbh) = DbRep_dbConnect($name,0);
+  if ($err) {
+	  $err = encode_base64($err,"");
+	  return "$name|''|$opt|$cmd|''|''|$err";
   }
        
   # only for this block because of warnings if details of readings are not set
@@ -5876,33 +6211,39 @@ sub sqlCmd_DoParse($) {
      return "$name|''|$opt|$sql|''|''|$err";       
   }
  
-  my @rows;
+  my (@rows,$row,@head);
   my $nrows = 0;
   if($sql =~ m/^\s*(explain|select|pragma|show)/is) {
-    while (my @line = $sth->fetchrow_array()) {
-      Log3 ($name, 4, "DbRep $name - SQL result: @line");
-      my $row = join("$srs", @line);
+      @head = map { uc($sth->{NAME}[$_]) } keys @{$sth->{NAME}};   # https://metacpan.org/pod/DBI#NAME1
+      if (@head) {
+          $row = join("$srs", @head);
+          push(@rows, $row);
+      }
       
-	  # join Delimiter "§" escapen
-	  $row =~ s/§/|°escaped°|/g;
+      while (my @line = $sth->fetchrow_array()) {
+          Log3 ($name, 4, "DbRep $name - SQL result: @line");
+          $row = join("$srs", @line);
       
-      push(@rows, $row);
-      # Anzahl der Datensätze
-      $nrows++;
-    }
+	      # join Delimiter "§" escapen
+	      $row =~ s/§/|°escaped°|/g;
+      
+          push(@rows, $row);
+          # Anzahl der Datensätze
+          $nrows++;
+      }
   } else {
-     $nrows = $sth->rows;
-     eval {$dbh->commit() if(!$dbh->{AutoCommit});};
-     if ($@) {
-         $err = encode_base64($@,"");
-         Log3 ($name, 2, "DbRep $name - ERROR - $@");
-         $dbh->disconnect;
-         return "$name|''|$opt|$sql|''|''|$err";       
-     }
+      $nrows = $sth->rows;
+      eval {$dbh->commit() if(!$dbh->{AutoCommit});};
+      if ($@) {
+          $err = encode_base64($@,"");
+          Log3 ($name, 2, "DbRep $name - ERROR - $@");
+          $dbh->disconnect;
+          return "$name|''|$opt|$sql|''|''|$err";       
+      }
 	 
-	 push(@rows, $r);
-	 my $com = (split(" ",$sql, 2))[0];
-	 Log3 ($name, 3, "DbRep $name - Number of entries processed in db $hash->{DATABASE}: $nrows by $com");  
+	  push(@rows, $r);
+	  my $com = (split(" ",$sql, 2))[0];
+	  Log3 ($name, 3, "DbRep $name - Number of entries processed in db $hash->{DATABASE}: $nrows by $com");  
   }
   
   $sth->finish;
@@ -5943,13 +6284,14 @@ sub sqlCmd_ParseDone($) {
   my $srs        = AttrVal($name, "sqlResultFieldSep", "|");
   my $erread;
   
+  delete($hash->{HELPER}{RUNNING_PID});
+  
   # Befehl nach Procedure ausführen
   $erread = DbRep_afterproc($hash, "sqlCmd");
   
   if ($err) {
     ReadingsSingleUpdateValue ($hash, "errortext", $err, 1);
     ReadingsSingleUpdateValue ($hash, "state", "error", 1);
-    delete($hash->{HELPER}{RUNNING_PID});
     return;
   }
   
@@ -5965,10 +6307,10 @@ sub sqlCmd_ParseDone($) {
   ReadingsBulkUpdateValue ($hash, "sqlResultNumRows", $nrows);
   
   # Drop-Down Liste bisherige sqlCmd-Befehle füllen und in Key-File sichern
-  # my $hl      = $hash->{HELPER}{SQLHIST};
   my @sqlhist = split(",",$hash->{HELPER}{SQLHIST});
-  $cmd =~ s/\s/&nbsp;/g;
-  $cmd =~ s/,/<c>/g;
+  $cmd =~ s/\s+/&nbsp;/g; 
+  $cmd =~ s/,/&#65292;/g;                                                   # Forum: https://forum.fhem.de/index.php/topic,103908.0.html
+  $cmd =~ s/&#65292;&nbsp;/&#65292;/g;
   my $hlc = AttrVal($name, "sqlCmdHistoryLength", 0);                       # Anzahl der Einträge in Drop-Down Liste
   if(!@sqlhist || (@sqlhist && !($cmd ~~ @sqlhist))) {
       unshift @sqlhist,$cmd;
@@ -5990,8 +6332,8 @@ sub sqlCmd_ParseDone($) {
 	  foreach $row ( @rows ) {
 	      $row =~ s/\|°escaped°\|/§/g;
 		  $row =~ s/$srs/\|/g if($srs !~ /\|/);
-		  $row =~ s/\|/<\/td><td style='padding-right:5px;padding-left:5px'>/g;
-          $res .= "<tr><td style='padding-right:5px;padding-left:5px'>".$row."</td></tr>";
+		  $row =~ s/\|/<\/td><td style='padding-right:5px;padding-left:5px;text-align: right;'>/g;
+          $res .= "<tr><td style='padding-right:5px;padding-left:5px;text-align: right;'>".$row."</td></tr>";
       }
 	  $row .= $res."</table></html>";
 	  
@@ -6040,9 +6382,7 @@ sub sqlCmd_ParseDone($) {
 
   ReadingsBulkUpdateTimeState($hash,$brt,$rt,$state);
   readingsEndUpdate($hash, 1);
-  
-  delete($hash->{HELPER}{RUNNING_PID});
-  
+    
 return;
 }
 
@@ -6055,7 +6395,7 @@ sub dbmeta_DoParse($) {
  my $name        = $a[0];
  my $hash        = $defs{$name};
  my $opt         = $a[1];
- my $dbloghash   = $hash->{dbloghash};
+ my $dbloghash   = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn      = $dbloghash->{dbconn};
  my $db          = $hash->{DATABASE};
  my $dbuser      = $dbloghash->{dbuser};
@@ -6159,6 +6499,7 @@ sub dbmeta_DoParse($) {
                      }
 				 }
              } elsif ($opt eq "procinfo") {
+                   my $row;
 			       my $res = "<html><table border=2 bordercolor='darkgreen' cellspacing=0>";
 				   $res .= "<tr><td style='padding-right:5px;padding-left:5px;font-weight:bold'>ID</td>";
 				   $res .= "<td style='padding-right:5px;padding-left:5px;font-weight:bold'>USER</td>";
@@ -6169,11 +6510,12 @@ sub dbmeta_DoParse($) {
 				   $res .= "<td style='padding-right:5px;padding-left:5px;font-weight:bold'>STATE</td>";
 				   $res .= "<td style='padding-right:5px;padding-left:5px;font-weight:bold'>INFO</td>";
 				   $res .= "<td style='padding-right:5px;padding-left:5px;font-weight:bold'>PROGRESS</td></tr>";
-			       while (my @line = $sth->fetchrow_array()) {
+                                   
+                   while (my @line = $sth->fetchrow_array()) {
                        Log3 ($name, 4, "DbRep $name - SQL result: @line");
-					   my $row = join("|", @line);
-					   $row =~ tr/ A-Za-z0-9!"#$§%&'()*+,-.\/:;<=>?@[\]^_`{|}~//cd; 
-		               $row =~ s/\|/<\/td><td style='padding-right:5px;padding-left:5px'>/g;
+					   $row  = join("|", @line);
+					   $row  =~ tr/ A-Za-z0-9!"#$§%&'()*+,-.\/:;<=>?@[\]^_`{|}~//cd; 
+		               $row  =~ s/\|/<\/td><td style='padding-right:5px;padding-left:5px'>/g;
                        $res .= "<tr><td style='padding-right:5px;padding-left:5px'>".$row."</td></tr>";
                    }
                    my $tab .= $res."</table></html>";
@@ -6264,10 +6606,11 @@ sub dbmeta_ParseDone($) {
   my ($rt,$brt)  = split(",", $bt);
   my $err        = $a[4]?decode_base64($a[4]):undef;
   
-   if ($err) {
+  delete($hash->{HELPER}{RUNNING_PID});
+  
+  if ($err) {
       ReadingsSingleUpdateValue ($hash, "errortext", $err, 1);
       ReadingsSingleUpdateValue ($hash, "state", "error", 1);
-      delete($hash->{HELPER}{RUNNING_PID});
       return;
   }
     
@@ -6294,11 +6637,7 @@ sub dbmeta_ParseDone($) {
   
   ReadingsBulkUpdateTimeState($hash,$brt,$rt,"done");
   readingsEndUpdate($hash, 1);
-  
-  # InternalTimer(time+0.5, "browser_refresh", $hash, 0);
-  
-  delete($hash->{HELPER}{RUNNING_PID});
-  
+    
 return;
 }
 
@@ -6315,28 +6654,45 @@ sub DbRep_Index($) {
   my ($string)   = @_;
   my ($name,$cmdidx) = split("\\|", $string);
   my $hash       = $defs{$name};
-  my $dbloghash  = $hash->{dbloghash};
+  my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
   my $database   = $hash->{DATABASE};
   my $dbconn     = $dbloghash->{dbconn};
   my $dbuser     = $dbloghash->{dbuser};
   my $dblogname  = $dbloghash->{NAME};
   my $dbmodel    = $dbloghash->{MODEL};
+  my $grants     = $hash->{HELPER}{GRANTS};
   my $dbpassword = $attr{"sec$dblogname"}{secret};
   my $utf8       = defined($hash->{UTF8})?$hash->{UTF8}:0;
   my ($dbh,$err,$sth,$rows,@six);
   my ($sqldel,$sqlcre,$sqlava,$sqlallidx,$ret) = ("","","","","");
+  my $p          = 0;
 	
   Log3 ($name, 5, "DbRep $name -> Start DbRep_Index");
     
   # Background-Startzeit
   my $bst = [gettimeofday];
-	
-  eval {$dbh = DBI->connect("dbi:$dbconn", $dbuser, $dbpassword, { PrintError => 0, RaiseError => 1, AutoInactiveDestroy => 1, mysql_enable_utf8 => $utf8 });};
- 
-  if ($@) {
-      $err = encode_base64($@,"");
-      Log3 ($name, 2, "DbRep $name - DbRep_Index - $@");
-      return "$name|''|''|$err";
+  
+  # Rechte Check MYSQL
+  if($cmdidx ne "list_all" && $dbmodel =~ /MYSQL/) {
+      if($grants && $grants ne "ALL PRIVILEGES") {
+          # Rechte INDEX und ALTER benötigt
+          my $i = index($grants,"INDEX");
+          my $a = index($grants,"ALTER");
+          if($i==-1 || $a==-1) {
+              $p = 1;
+          }
+      } elsif (!$grants) {
+          $p = 1;
+      }
+  }
+  
+  Log3 ($name, 2, "DbRep $name - user \"$dbuser\" doesn't have rights \"INDEX\" and \"ALTER\" as needed - try use adminCredentials automatically !") 
+     if($p);
+  
+  ($err,$dbh) = DbRep_dbConnect($name,$p);
+  if ($err) {
+	  $err = encode_base64($err,"");
+	  return "$name|''|''|$err";
   }
   
   my ($cmd,$idx) = split("_",$cmdidx,2);
@@ -6544,7 +6900,7 @@ return;
 sub DbRep_optimizeTables($) {
  my ($name)        = @_;
  my $hash          = $defs{$name};
- my $dbloghash     = $hash->{dbloghash};
+ my $dbloghash     = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn        = $dbloghash->{dbconn};
  my $dbuser        = $dbloghash->{dbuser};
  my $dblogname     = $dbloghash->{NAME};
@@ -6771,7 +7127,7 @@ return;
 sub mysql_DoDumpClientSide($) {
  my ($name)                     = @_;
  my $hash                       = $defs{$name};
- my $dbloghash                  = $hash->{dbloghash};
+ my $dbloghash                  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn                     = $dbloghash->{dbconn};
  my $dbuser                     = $dbloghash->{dbuser};
  my $dblogname                  = $dbloghash->{NAME};
@@ -7245,7 +7601,7 @@ return "$name|$rt|''|$dump_path$backupfile|$drc|$drh|$fsize|$ftp|$bfd|$ffd";
 sub mysql_DoDumpServerSide($) {
  my ($name)                     = @_;
  my $hash                       = $defs{$name};
- my $dbloghash                  = $hash->{dbloghash};
+ my $dbloghash                  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn                     = $dbloghash->{dbconn};
  my $dbuser                     = $dbloghash->{dbuser};
  my $dblogname                  = $dbloghash->{NAME};
@@ -7420,7 +7776,7 @@ return "$name|$rt|''|$dump_path_rem$bfile|n.a.|$drh|$fsize|$ftp|$bfd|$ffd";
 sub DbRep_sqliteDoDump($) {
  my ($name)                     = @_;
  my $hash                       = $defs{$name};
- my $dbloghash                  = $hash->{dbloghash};
+ my $dbloghash                  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbname                     = $hash->{DATABASE};
  my $dbconn                     = $dbloghash->{dbconn};
  my $dbuser                     = $dbloghash->{dbuser};
@@ -7600,7 +7956,7 @@ return;
 sub DbRep_sqliteRepair($) {
  my ($name)       = @_;
  my $hash         = $defs{$name};
- my $dbloghash    = $hash->{dbloghash};
+ my $dbloghash    = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $db           = $hash->{DATABASE};
  my $dbname       = (split /[\/]/, $db)[-1];
  my $dbpath       = (split /$dbname/, $db)[0];
@@ -7670,7 +8026,7 @@ sub DbRep_RepairDone($) {
   my $hash       = $defs{$a[0]};
   my $brt        = $a[1];
   my $err        = $a[2]?decode_base64($a[2]):undef;
-  my $dbloghash  = $hash->{dbloghash};
+  my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
   my $name       = $hash->{NAME};
   my $erread;
   
@@ -7713,7 +8069,7 @@ sub DbRep_sqliteRestore ($) {
  my ($string) = @_;
  my ($name,$bfile) = split("\\|", $string);
  my $hash          = $defs{$name};
- my $dbloghash     = $hash->{dbloghash};
+ my $dbloghash     = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn        = $dbloghash->{dbconn};
  my $dbuser        = $dbloghash->{dbuser};
  my $dblogname     = $dbloghash->{NAME};
@@ -7791,7 +8147,7 @@ sub mysql_RestoreServerSide($) {
  my ($string) = @_;
  my ($name, $bfile)      = split("\\|", $string);
  my $hash                = $defs{$name};
- my $dbloghash           = $hash->{dbloghash};
+ my $dbloghash           = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn              = $dbloghash->{dbconn};
  my $dbuser              = $dbloghash->{dbuser};
  my $dblogname           = $dbloghash->{NAME};
@@ -7865,7 +8221,7 @@ sub mysql_RestoreClientSide($) {
  my ($string) = @_;
  my ($name, $bfile)      = split("\\|", $string);
  my $hash                = $defs{$name};
- my $dbloghash           = $hash->{dbloghash};
+ my $dbloghash           = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn              = $dbloghash->{dbconn};
  my $dbuser              = $dbloghash->{dbuser};
  my $dblogname           = $dbloghash->{NAME};
@@ -8100,7 +8456,7 @@ sub DbRep_syncStandby($) {
  my $utf8       = defined($hash->{UTF8})?$hash->{UTF8}:0;
  my ($dbh,$dbhstby,$err,$sql,$irows,$irowdone);
  # Quell-DB
- my $dbloghash  = $hash->{dbloghash};
+ my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
  my $dbconn     = $dbloghash->{dbconn};
  my $dbuser     = $dbloghash->{dbuser};
  my $dblogname  = $dbloghash->{NAME};
@@ -8220,13 +8576,14 @@ sub DbRep_syncStandbyDone($) {
   my $err        = $a[3]?decode_base64($a[3]):undef;
   my $erread;
   
+  delete($hash->{HELPER}{RUNNING_PID});
+  
   # Befehl nach Procedure ausführen
   $erread = DbRep_afterproc($hash, "syncStandby");
   
   if ($err) {
       ReadingsSingleUpdateValue ($hash, "errortext", $err, 1);
       ReadingsSingleUpdateValue ($hash, "state", "error", 1);
-      delete($hash->{HELPER}{RUNNING_PID});
       Log3 ($name, 4, "DbRep $name -> BlockingCall change_Done finished");
       return;
   } 
@@ -8239,9 +8596,7 @@ sub DbRep_syncStandbyDone($) {
   ReadingsBulkUpdateValue ($hash, "number_lines_inserted_Standby", $irows); 
   ReadingsBulkUpdateTimeState($hash,$brt,$rt,$state);
   readingsEndUpdate($hash, 1);
-
-  delete($hash->{HELPER}{RUNNING_PID});
-  
+ 
 return;
 }
 
@@ -8255,19 +8610,30 @@ sub DbRep_reduceLog($) {
     my ($string)   = @_;
     my ($name,$d,$r,$nts,$ots) = split("\\|", $string);
     my $hash       = $defs{$name};
-    my $dbloghash  = $hash->{dbloghash};
+    my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
     my $dbconn     = $dbloghash->{dbconn};
     my $dbuser     = $dbloghash->{dbuser};
     my $dblogname  = $dbloghash->{NAME};
     my $dbmodel    = $dbloghash->{MODEL};
     my $dbpassword = $attr{"sec$dblogname"}{secret};
     my @a          = @{$hash->{HELPER}{REDUCELOG}};
+    my $rlpar      = join(" ", @a);
 	my $utf8       = defined($hash->{UTF8})?$hash->{UTF8}:0;
-    delete $hash->{HELPER}{REDUCELOG};
+
     my ($ret,$row,$filter,$exclude,$c,$day,$hour,$lastHour,$updDate,$updHour,$average,$processingDay,$lastUpdH);
     my (%hourlyKnown,%averageHash,@excludeRegex,@dayRows,@averageUpd,@averageUpdD);
     my ($startTime,$currentHour,$currentDay,$deletedCount,$updateCount,$sum,$rowCount,$excludeCount) = (time(),99,0,0,0,0,0,0);
     my ($dbh,$err,$brt);
+    
+    BlockingInformParent("DbRep_delHashValFromBlocking", [$name, "HELPER","REDUCELOG"], 1);
+	
+	# ausfiltern von optionalen Zeitangaben, z.B. 700:750 -> Rest zur Einhaltung des ursprünglichen Formats nach @a schreiben
+	my @b;
+    foreach (@a) {     
+	    next if($_ =~ /\b(\d+(:\d+)?)\b/);
+        push @b, $_;
+    }
+	@a = @b;
 	
     Log3 ($name, 5, "DbRep $name -> Start DbLog_reduceLog");
 	
@@ -8286,16 +8652,15 @@ sub DbRep_reduceLog($) {
         $filter = 1;
     }
    
-    my ($idevs,$idanz,$ireading,$iranz,$edevs,$edanz,$ereading,$eranz) = DbRep_specsForSql($hash,$d,$r);
+    my ($idevs,$idevswc,$idanz,$ireading,$iranz,$irdswc,$edevs,$edevswc,$edanz,$ereading,$eranz,$erdswc) = DbRep_specsForSql($hash,$d,$r);
     
     # ist Zeiteingrenzung und/oder Aggregation gesetzt ? (wenn ja -> "?" in SQL sonst undef) 
     my ($IsTimeSet,$IsAggrSet,$aggregation) = DbRep_checktimeaggr($hash); 
     Log3 ($name, 5, "DbRep $name - IsTimeSet: $IsTimeSet, IsAggrSet: $IsAggrSet"); 
     
     my $sql;
-    my $table = "history";
-    my $selspec = "TIMESTAMP,DEVICE,'',READING,VALUE";
-    my $addon = "ORDER BY TIMESTAMP ASC";
+    my $selspec = "SELECT TIMESTAMP,DEVICE,'',READING,VALUE FROM history where ";
+    my $addon   = "ORDER BY TIMESTAMP ASC";
     
     if($filter) {
         # Option EX/INCLUDE wurde angegeben
@@ -8303,9 +8668,9 @@ sub DbRep_reduceLog($) {
                     .($a[-1] =~ /^INCLUDE=(.+):(.+)$/i ? "DEVICE like '$1' AND READING like '$2' AND " : '')
                     ."TIMESTAMP <= '$ots'".($nts?" AND TIMESTAMP >= '$nts' ":" ")."ORDER BY TIMESTAMP ASC";
     } elsif ($IsTimeSet || $IsAggrSet) {
-        $sql = DbRep_createSelectSql($hash,$table,$selspec,$d,$r,"'$nts'","'$ots'",$addon);
+        $sql = DbRep_createCommonSql($hash,$selspec,$d,$r,"'$nts'","'$ots'",$addon);
 	} else {
-	    $sql = DbRep_createSelectSql($hash,$table,$selspec,$d,$r,undef,undef,$addon); 
+	    $sql = DbRep_createCommonSql($hash,$selspec,$d,$r,undef,undef,$addon); 
 	}
     
     Log3 ($name, 4, "DbRep $name - SQL execute: $sql");
@@ -8318,7 +8683,10 @@ sub DbRep_reduceLog($) {
     Log3 ($name, 3, "DbRep $name - reduceLog requested with options: "
         .(($average) ? "$average" : '')
         .($filter ? ((($average && $filter) ? ", " : '').(uc((split('=',$a[-1]))[0]).'='.(split('=',$a[-1]))[1])) :
-        ((($idanz || $iranz) ? " INCLUDE -> " : '').($idanz ? "Devs: ".$idevs : '').($iranz ? " Readings: ".$ireading : '').(($edanz || $eranz) ? " EXCLUDE -> " : '').($edanz ? "Devs: ".$edevs : '').($eranz ? " Readings: ".$ereading : '')) ));
+        ((($idanz || $idevswc || $iranz || $irdswc) ? " INCLUDE -> " : '').
+           (($idanz || $idevswc)? "Devs: ".($idevs?$idevs:'').($idevswc?$idevswc:'') : '').(($iranz || $irdswc) ? " Readings: ".($ireading?$ireading:'').($irdswc?$irdswc:'') : '').
+           (($edanz || $edevswc || $eranz || $erdswc) ? " EXCLUDE -> " : '').
+           (($edanz || $edevswc)? "Devs: ".($edevs?$edevs:'').($edevswc?$edevswc:'') : '').(($eranz || $erdswc) ? " Readings: ".($ereading?$ereading:'').($erdswc?$erdswc:'') : '')) ));
         
     if ($ots) {
 	    my ($sth_del, $sth_upd, $sth_delD, $sth_updD, $sth_get);
@@ -8610,7 +8978,7 @@ sub DbRep_reduceLogDone($) {
   my $ret       = decode_base64($a[1]);
   my $err       = decode_base64($a[2]) if ($a[2]);
   my $brt       = $a[3];
-  my $dbloghash = $hash->{dbloghash};
+  my $dbloghash = $defs{$hash->{HELPER}{DBLOGDEVICE}};
   my $erread;  
   
   delete $hash->{HELPER}{RUNNING_REDUCELOG};
@@ -8707,6 +9075,8 @@ sub DbRep_ParseAborted(@) {
   my $dbh = $hash->{DBH}; 
   my $erread = "";
   
+  delete($hash->{HELPER}{RUNNING_PID});
+  
   $cause = $cause?$cause:"Timeout: process terminated";
   Log3 ($name, 1, "DbRep $name -> BlockingCall $hash->{HELPER}{RUNNING_PID}{fn} pid:$hash->{HELPER}{RUNNING_PID}{pid} $cause");
   
@@ -8721,7 +9091,6 @@ sub DbRep_ParseAborted(@) {
   
   Log3 ($name, 2, "DbRep $name - Database command aborted due to \"$cause\" ");
   
-  delete($hash->{HELPER}{RUNNING_PID});
 return;
 }
 
@@ -8788,7 +9157,7 @@ sub DbRep_RepairAborted(@) {
   my ($hash,$cause) = @_;
   my $name      = $hash->{NAME};
   my $dbh       = $hash->{DBH}; 
-  my $dbloghash = $hash->{dbloghash};
+  my $dbloghash = $defs{$hash->{HELPER}{DBLOGDEVICE}};
   my $erread;
   
   $cause = $cause?$cause:"Timeout: process terminated";
@@ -8811,17 +9180,18 @@ return;
 }
 
 ####################################################################################################
-#  SQL-Statement zusammenstellen für DB-Abfrage
+#               SQL-Statement zusammenstellen Common
 ####################################################################################################
-sub DbRep_createSelectSql($$$$$$$$) {
- my ($hash,$table,$selspec,$device,$reading,$tf,$tn,$addon) = @_;
+sub DbRep_createCommonSql ($$$$$$$) {
+ my ($hash,$selspec,$device,$reading,$tf,$tn,$addon) = @_;
  my $name      = $hash->{NAME};
- my $dbmodel   = $hash->{dbloghash}{MODEL};
+ my $dbloghash = $defs{$hash->{HELPER}{DBLOGDEVICE}};
+ my $dbmodel   = $dbloghash->{MODEL};
  my $valfilter = AttrVal($name, "valueFilter", undef);        # Wertefilter
- my ($sql,$vf);
- my $tnfull = 0;
+ my $tnfull    = 0;
+ my ($sql,$vf,@dwc,@rwc);
  
- my ($idevs,$idanz,$ireading,$iranz,$edevs,$edanz,$ereading,$eranz) = DbRep_specsForSql($hash,$device,$reading);
+ my ($idevs,$idevswc,$idanz,$ireading,$iranz,$irdswc,$edevs,$edevswc,$edanz,$ereading,$eranz,$erdswc) = DbRep_specsForSql($hash,$device,$reading);
  
  if($tn && $tn =~ /(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})/) {
      $tnfull = 1;
@@ -8835,23 +9205,69 @@ sub DbRep_createSelectSql($$$$$$$$) {
 	 }
  }
  
- $sql = "SELECT $selspec FROM $table where ";
+ $sql = $selspec." ";
  # included devices
- $sql .= "DEVICE LIKE '$idevs' AND "          if($idanz <= 1 && $idevs !~ m(^%$) && $idevs =~ m(\%));
- $sql .= "DEVICE = '$idevs' AND "             if($idanz <= 1 && $idevs !~ m(\%));
- $sql .= "DEVICE IN ($idevs) AND "            if($idanz > 1);
+ $sql .= "( "                                 if(($idanz || $idevswc) && $idevs !~ m(^%$));
+ if($idevswc && $idevs !~ m(^%$)) {
+     @dwc    = split(",",$idevswc);
+	 my $i   = 1;
+	 my $len = scalar(@dwc);
+	 foreach(@dwc) {
+	     if($i<$len) {
+	         $sql .= "DEVICE LIKE '$_' OR ";
+		 } else {
+		     $sql .= "DEVICE LIKE '$_' ";
+		 }
+		 $i++;
+	 }
+     if($idanz) {
+         $sql .= "OR "; 
+     }
+ }
+ $sql .= "DEVICE = '$idevs' "                 if($idanz == 1 && $idevs && $idevs !~ m(^%$));
+ $sql .= "DEVICE IN ($idevs) "                if($idanz > 1);
+ $sql .= ") AND "                             if(($idanz || $idevswc) && $idevs !~ m(^%$));
  # excluded devices
- $sql .= "DEVICE NOT LIKE '$edevs' AND "      if($edanz && $edanz == 1 && $edevs =~ m(\%));
- $sql .= "DEVICE != '$edevs' AND "            if($edanz && $edanz == 1 && $edevs !~ m(\%));
- $sql .= "DEVICE NOT IN ($edevs) AND "        if($edanz > 1);
+ if($edevswc) {
+     @dwc = split(",",$edevswc);
+	 foreach(@dwc) {
+	     $sql .= "DEVICE NOT LIKE '$_' AND ";
+	 }
+ }
+ $sql .= "DEVICE != '$edevs' "                if($edanz == 1 && $edanz && $edevs !~ m(^%$));
+ $sql .= "DEVICE NOT IN ($edevs) "            if($edanz > 1);
+ $sql .= "AND "                               if($edanz && $edevs !~ m(^%$));
  # included readings
- $sql .= "READING LIKE '$ireading' AND "      if($iranz <= 1 && $ireading !~ m(^%$) && $ireading =~ m(\%));
- $sql .= "READING = '$ireading' AND "         if($iranz <= 1 && $ireading !~ m(\%));
- $sql .= "READING IN ($ireading) AND "        if($iranz > 1);
+ $sql .= "( "                                 if(($iranz || $irdswc) && $ireading !~ m(^%$));
+ if($irdswc && $ireading !~ m(^%$)) {
+     @rwc    = split(",",$irdswc);
+	 my $i   = 1;
+	 my $len = scalar(@rwc);
+	 foreach(@rwc) {
+	     if($i<$len) {
+	         $sql .= "READING LIKE '$_' OR ";
+		 } else {
+		     $sql .= "READING LIKE '$_' ";
+		 }
+		 $i++;
+	 }
+     if($iranz) {
+         $sql .= "OR "; 
+     }
+ }
+ $sql .= "READING = '$ireading' "             if($iranz == 1 && $ireading && $ireading !~ m(\%));
+ $sql .= "READING IN ($ireading) "            if($iranz > 1);
+ $sql .= ") AND "                             if(($iranz || $irdswc) && $ireading !~ m(^%$));
  # excluded readings
- $sql .= "READING NOT LIKE '$ereading' AND "  if($eranz && $eranz == 1 && $ereading =~ m(\%));
- $sql .= "READING != '$ereading' AND "        if($eranz && $eranz == 1 && $ereading !~ m(\%));
- $sql .= "READING NOT IN ($ereading) AND "    if($eranz > 1);
+ if($erdswc) {
+     @dwc = split(",",$erdswc);
+	 foreach(@dwc) {
+	     $sql .= "READING NOT LIKE '$_' AND ";
+	 }
+ }
+ $sql .= "READING != '$ereading' "            if($eranz && $eranz == 1 && $ereading !~ m(\%));
+ $sql .= "READING NOT IN ($ereading) "        if($eranz > 1);
+ $sql .= "AND "                               if($eranz && $ereading !~ m(^%$));
  # add valueFilter
  $sql .= $vf if(defined $vf);
  # Timestamp Filter
@@ -8870,19 +9286,20 @@ return $sql;
 }
 
 ####################################################################################################
-#  SQL-Statement zusammenstellen für DB-Updates
+#               SQL-Statement zusammenstellen für DB-Abfrage Select
 ####################################################################################################
-sub DbRep_createUpdateSql($$$$$$$$) {
+sub DbRep_createSelectSql($$$$$$$$) {
  my ($hash,$table,$selspec,$device,$reading,$tf,$tn,$addon) = @_;
- my $name    = $hash->{NAME};
- my $dbmodel = $hash->{dbloghash}{MODEL};
+ my $name      = $hash->{NAME};
+ my $dbloghash = $defs{$hash->{HELPER}{DBLOGDEVICE}};
+ my $dbmodel   = $dbloghash->{MODEL};
  my $valfilter = AttrVal($name, "valueFilter", undef);        # Wertefilter
- my ($sql,$vf);
- my $tnfull = 0;
+ my $tnfull    = 0;
+ my ($sql,$vf,@dwc,@rwc);
  
- my ($idevs,$idanz,$ireading,$iranz,$edevs,$edanz,$ereading,$eranz) = DbRep_specsForSql($hash,$device,$reading);
+ my ($idevs,$idevswc,$idanz,$ireading,$iranz,$irdswc,$edevs,$edevswc,$edanz,$ereading,$eranz,$erdswc) = DbRep_specsForSql($hash,$device,$reading);
  
- if($tn =~ /(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})/) {
+ if($tn && $tn =~ /(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})/) {
      $tnfull = 1;
  }
  
@@ -8893,24 +9310,70 @@ sub DbRep_createUpdateSql($$$$$$$$) {
 	     $vf = "VALUE REGEXP '$valfilter' AND ";
 	 }
  }
-
- $sql = "UPDATE $table SET $selspec AND ";
+ 
+ $sql = "SELECT $selspec FROM $table where ";
  # included devices
- $sql .= "DEVICE LIKE '$idevs' AND "          if($idanz <= 1 && $idevs !~ m(^%$) && $idevs =~ m(\%));
- $sql .= "DEVICE = '$idevs' AND "             if($idanz <= 1 && $idevs !~ m(\%));
- $sql .= "DEVICE IN ($idevs) AND "            if($idanz > 1);
+ $sql .= "( "                                 if(($idanz || $idevswc) && $idevs !~ m(^%$));
+ if($idevswc && $idevs !~ m(^%$)) {
+     @dwc    = split(",",$idevswc);
+	 my $i   = 1;
+	 my $len = scalar(@dwc);
+	 foreach(@dwc) {
+	     if($i<$len) {
+	         $sql .= "DEVICE LIKE '$_' OR ";
+		 } else {
+		     $sql .= "DEVICE LIKE '$_' ";
+		 }
+		 $i++;
+	 }
+     if($idanz) {
+         $sql .= "OR "; 
+     }
+ }
+ $sql .= "DEVICE = '$idevs' "                 if($idanz == 1 && $idevs && $idevs !~ m(^%$));
+ $sql .= "DEVICE IN ($idevs) "                if($idanz > 1);
+ $sql .= ") AND "                             if(($idanz || $idevswc) && $idevs !~ m(^%$));
  # excluded devices
- $sql .= "DEVICE NOT LIKE '$edevs' AND "      if($edanz && $edanz == 1 && $edevs =~ m(\%));
- $sql .= "DEVICE != '$edevs' AND "            if($edanz && $edanz == 1 && $edevs !~ m(\%));
- $sql .= "DEVICE NOT IN ($edevs) AND "        if($edanz > 1);
+ if($edevswc) {
+     @dwc = split(",",$edevswc);
+	 foreach(@dwc) {
+	     $sql .= "DEVICE NOT LIKE '$_' AND ";
+	 }
+ }
+ $sql .= "DEVICE != '$edevs' "                if($edanz == 1 && $edanz && $edevs !~ m(^%$));
+ $sql .= "DEVICE NOT IN ($edevs) "            if($edanz > 1);
+ $sql .= "AND "                               if($edanz && $edevs !~ m(^%$));
  # included readings
- $sql .= "READING LIKE '$ireading' AND "      if($iranz <= 1 && $ireading !~ m(^%$) && $ireading =~ m(\%));
- $sql .= "READING = '$ireading' AND "         if($iranz <= 1 && $ireading !~ m(\%));
- $sql .= "READING IN ($ireading) AND "        if($iranz > 1);
+ $sql .= "( "                                 if(($iranz || $irdswc) && $ireading !~ m(^%$));
+ if($irdswc && $ireading !~ m(^%$)) {
+     @rwc    = split(",",$irdswc);
+	 my $i   = 1;
+	 my $len = scalar(@rwc);
+	 foreach(@rwc) {
+	     if($i<$len) {
+	         $sql .= "READING LIKE '$_' OR ";
+		 } else {
+		     $sql .= "READING LIKE '$_' ";
+		 }
+		 $i++;
+	 }
+     if($iranz) {
+         $sql .= "OR "; 
+     }
+ }
+ $sql .= "READING = '$ireading' "             if($iranz == 1 && $ireading && $ireading !~ m(\%));
+ $sql .= "READING IN ($ireading) "            if($iranz > 1);
+ $sql .= ") AND "                             if(($iranz || $irdswc) && $ireading !~ m(^%$));
  # excluded readings
- $sql .= "READING NOT LIKE '$ereading' AND "  if($eranz && $eranz == 1 && $ereading =~ m(\%));
- $sql .= "READING != '$ereading' AND "        if($eranz && $eranz == 1 && $ereading !~ m(\%));
- $sql .= "READING NOT IN ($ereading) AND "    if($eranz > 1);
+ if($erdswc) {
+     @dwc = split(",",$erdswc);
+	 foreach(@dwc) {
+	     $sql .= "READING NOT LIKE '$_' AND ";
+	 }
+ }
+ $sql .= "READING != '$ereading' "            if($eranz && $eranz == 1 && $ereading !~ m(\%));
+ $sql .= "READING NOT IN ($ereading) "        if($eranz > 1);
+ $sql .= "AND "                               if($eranz && $ereading !~ m(^%$));
  # add valueFilter
  $sql .= $vf if(defined $vf);
  # Timestamp Filter
@@ -8920,7 +9383,7 @@ sub DbRep_createUpdateSql($$$$$$$$) {
      if ($dbmodel eq "POSTGRESQL") {
 	     $sql .= "true ";
 	 } else {
-	      $sql .= "1 ";
+	     $sql .= "1 ";
 	 }
  }
  $sql .= "$addon;";
@@ -8933,18 +9396,19 @@ return $sql;
 ####################################################################################################
 sub DbRep_createDeleteSql($$$$$$$) {
  my ($hash,$table,$device,$reading,$tf,$tn,$addon) = @_;
- my $name    = $hash->{NAME};
- my $dbmodel = $hash->{dbloghash}{MODEL};
+ my $name      = $hash->{NAME};
+ my $dbloghash = $defs{$hash->{HELPER}{DBLOGDEVICE}};
+ my $dbmodel   = $dbloghash->{MODEL};
  my $valfilter = AttrVal($name, "valueFilter", undef);        # Wertefilter
- my ($sql,$vf);
- my $tnfull = 0;
+ my $tnfull    = 0;
+ my ($sql,$vf,@dwc,@rwc);
  
  if($table eq "current") {
      $sql = "delete FROM $table; ";
 	 return $sql;
  }
  
- my ($idevs,$idanz,$ireading,$iranz,$edevs,$edanz,$ereading,$eranz) = DbRep_specsForSql($hash,$device,$reading);
+ my ($idevs,$idevswc,$idanz,$ireading,$iranz,$irdswc,$edevs,$edevswc,$edanz,$ereading,$eranz,$erdswc) = DbRep_specsForSql($hash,$device,$reading);
  
  if($tn =~ /(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})/) {
      $tnfull = 1;
@@ -8960,21 +9424,67 @@ sub DbRep_createDeleteSql($$$$$$$) {
  
  $sql = "delete FROM $table where ";
  # included devices
- $sql .= "DEVICE LIKE '$idevs' AND "          if($idanz <= 1 && $idevs !~ m(^%$) && $idevs =~ m(\%));
- $sql .= "DEVICE = '$idevs' AND "             if($idanz <= 1 && $idevs !~ m(\%));
- $sql .= "DEVICE IN ($idevs) AND "            if($idanz > 1);
+ $sql .= "( "                                 if(($idanz || $idevswc) && $idevs !~ m(^%$));
+ if($idevswc && $idevs !~ m(^%$)) {
+     @dwc    = split(",",$idevswc);
+	 my $i   = 1;
+	 my $len = scalar(@dwc);
+	 foreach(@dwc) {
+	     if($i<$len) {
+	         $sql .= "DEVICE LIKE '$_' OR ";
+		 } else {
+		     $sql .= "DEVICE LIKE '$_' ";
+		 }
+		 $i++;
+	 }
+     if($idanz) {
+         $sql .= "OR "; 
+     }
+ }
+ $sql .= "DEVICE = '$idevs' "                 if($idanz == 1 && $idevs && $idevs !~ m(^%$));
+ $sql .= "DEVICE IN ($idevs) "                if($idanz > 1);
+ $sql .= ") AND "                             if(($idanz || $idevswc) && $idevs !~ m(^%$));
  # excluded devices
- $sql .= "DEVICE NOT LIKE '$edevs' AND "      if($edanz && $edanz == 1 && $edevs =~ m(\%));
- $sql .= "DEVICE != '$edevs' AND "            if($edanz && $edanz == 1 && $edevs !~ m(\%));
- $sql .= "DEVICE NOT IN ($edevs) AND "        if($edanz > 1);
+ if($edevswc) {
+     @dwc = split(",",$edevswc);
+	 foreach(@dwc) {
+	     $sql .= "DEVICE NOT LIKE '$_' AND ";
+	 }
+ }
+ $sql .= "DEVICE != '$edevs' "                if($edanz == 1 && $edanz && $edevs !~ m(^%$));
+ $sql .= "DEVICE NOT IN ($edevs) "            if($edanz > 1);
+ $sql .= "AND "                               if($edanz && $edevs !~ m(^%$));
  # included readings
- $sql .= "READING LIKE '$ireading' AND "      if($iranz <= 1 && $ireading !~ m(^%$) && $ireading =~ m(\%));
- $sql .= "READING = '$ireading' AND "         if($iranz <= 1 && $ireading !~ m(\%));
- $sql .= "READING IN ($ireading) AND "        if($iranz > 1);
+ $sql .= "( "                                 if(($iranz || $irdswc) && $ireading !~ m(^%$));
+ if($irdswc && $ireading !~ m(^%$)) {
+     @rwc    = split(",",$irdswc);
+	 my $i   = 1;
+	 my $len = scalar(@rwc);
+	 foreach(@rwc) {
+	     if($i<$len) {
+	         $sql .= "READING LIKE '$_' OR ";
+		 } else {
+		     $sql .= "READING LIKE '$_' ";
+		 }
+		 $i++;
+	 }
+     if($iranz) {
+         $sql .= "OR "; 
+     }
+ }
+ $sql .= "READING = '$ireading' "             if($iranz == 1 && $ireading && $ireading !~ m(\%));
+ $sql .= "READING IN ($ireading) "            if($iranz > 1);
+ $sql .= ") AND "                             if(($iranz || $irdswc) && $ireading !~ m(^%$));
  # excluded readings
- $sql .= "READING NOT LIKE '$ereading' AND "  if($eranz && $eranz == 1 && $ereading =~ m(\%));
- $sql .= "READING != '$ereading' AND "        if($eranz && $eranz == 1 && $ereading !~ m(\%));
- $sql .= "READING NOT IN ($ereading) AND "    if($eranz > 1);
+ if($erdswc) {
+     @dwc = split(",",$erdswc);
+	 foreach(@dwc) {
+	     $sql .= "READING NOT LIKE '$_' AND ";
+	 }
+ }
+ $sql .= "READING != '$ereading' "            if($eranz && $eranz == 1 && $ereading !~ m(\%));
+ $sql .= "READING NOT IN ($ereading) "        if($eranz > 1);
+ $sql .= "AND "                               if($eranz && $ereading !~ m(^%$));
  # add valueFilter
  $sql .= $vf if(defined $vf);
  # Timestamp Filter
@@ -8997,11 +9507,13 @@ return $sql;
 sub DbRep_specsForSql($$$) {
  my ($hash,$device,$reading) = @_;
  my $name    = $hash->{NAME};
+ my (@idvspcs,@edvspcs,@idvs,@edvs,@idvswc,@edvswc,@residevs,@residevswc);
+ my ($nl,$nlwc) = ("","");
  
  ##### inkludierte / excludierte Devices und deren Anzahl ermitteln #####
- my ($idevice,$edevice) = ('','');
- my ($idevs,$edevs)     = ('','');
- my ($idanz,$edanz)     = (0,0);
+ my ($idevice,$edevice)               = ('','');
+ my ($idevs,$idevswc,$edevs,$edevswc) = ('','','','');
+ my ($idanz,$edanz)                   = (0,0);
  if($device =~ /EXCLUDE=/i) {
      ($idevice,$edevice) = split(/EXCLUDE=/i,$device);
 	 $idevice = $idevice?DbRep_trim($idevice):"%";
@@ -9009,35 +9521,102 @@ sub DbRep_specsForSql($$$) {
      $idevice = $device;
  }
  
- # Devices inkludiert
- my @idvspcs = devspec2array($idevice);
- $idevs = join(",",@idvspcs);
- $idevs =~ s/'/''/g;               # escape ' with ''
+ # Devices exkludiert
+ if($edevice) {
+     @edvs  = split(",",$edevice); 
+     foreach my $e (@edvs) {
+         $e       =~ s/%/\.*/g if($e !~ /^%$/);                      # SQL Wildcard % auflösen 
+         @edvspcs = devspec2array($e);
+         @edvspcs = map {s/\.\*/%/g; $_; } @edvspcs;
+		 if((map {$_ =~ /%/;} @edvspcs) && $edevice !~ /^%$/) {      # Devices mit Wildcard (%) erfassen, die nicht aufgelöst werden konnten
+			 $edevswc .= "," if($edevswc);
+			 $edevswc .= join(",",@edvspcs);
+		 } else {
+			 $edevs .= "," if($edevs);
+			 $edevs .= join(",",@edvspcs);	 
+		 }
+     }                                           
+ }
+ $edanz = split(",",$edevs);                                         # Anzahl der exkludierten Elemente (Lauf1)
  
- $idanz = $#idvspcs+1;
+ # Devices inkludiert
+ @idvs  = split(",",$idevice);
+ foreach my $d (@idvs) {
+     $d       =~ s/%/\.*/g if($d !~ /^%$/);                          # SQL Wildcard % auflösen  
+     @idvspcs = devspec2array($d);
+     @idvspcs = map {s/\.\*/%/g; $_; } @idvspcs;
+     if((map {$_ =~ /%/;} @idvspcs) && $idevice !~ /^%$/) {          # Devices mit Wildcard (%) erfassen, die nicht aufgelöst werden konnten
+		 $idevswc .= "," if($idevswc);
+		 $idevswc .= join(",",@idvspcs);
+     } else {
+		 $idevs .= "," if($idevs);
+		 $idevs .= join(",",@idvspcs);	 
+	 }	 
+ }
+ $idanz = split(",",$idevs);                                         # Anzahl der inkludierten Elemente (Lauf1)
+ 
+ Log3 $name, 5, "DbRep $name - Devices for operation - \n"
+                ."included ($idanz): $idevs \n"
+                ."included with wildcard: $idevswc \n"
+                ."excluded ($edanz): $edevs \n"
+                ."excluded with wildcard: $edevswc";
+ 
+ # exkludierte Devices aus inkludierten entfernen (aufgelöste)
+ @idvs = split(",",$idevs);
+ @edvs = split(",",$edevs);
+ foreach my $in (@idvs) {
+     my $inc = 1;
+     foreach(@edvs) {
+	     next if($in ne $_);
+		 $inc = 0;
+         $nl .= "|" if($nl);
+         $nl .= $_;                                                  # Liste der entfernten devices füllen
+	 }
+	 push(@residevs, $in) if($inc);
+ }
+ $edevs = join(",", map {($_ !~ /$nl/)?$_:();} @edvs) if($nl);
+ 
+ # exkludierte Devices aus inkludierten entfernen (wildcard konnte nicht aufgelöst werden)
+ @idvswc = split(",",$idevswc);
+ @edvswc = split(",",$edevswc);
+ foreach my $inwc (@idvswc) {
+     my $inc = 1;
+     foreach(@edvswc) {
+	     next if($inwc ne $_);
+		 $inc = 0;
+         $nlwc .= "|" if($nlwc);
+         $nlwc .= $_;                                                # Liste der entfernten devices füllen
+	 }
+	 push(@residevswc, $inwc) if($inc);
+ }
+ $edevswc = join(",", map {($_ !~ /$nlwc/)?$_:();} @edvswc) if($nlwc);
+ # Log3($name, 1, "DbRep $name - nlwc: $nlwc, mwc: @mwc");
+ 
+ # Ergebnis zusammenfassen
+ $idevs   = join(",",@residevs);
+ $idevs   =~ s/'/''/g;                                               # escape ' with ''
+ $idevswc = join(",",@residevswc);
+ $idevswc =~ s/'/''/g;                                               # escape ' with ''
+ 
+ $idanz = split(",",$idevs);                                         # Anzahl der inkludierten Elemente (Lauf2)
  if($idanz > 1) {
 	 $idevs =~ s/,/','/g;
 	 $idevs = "'".$idevs."'";
  }
  
- # Devices exkludiert
- if($edevice) {
-	 my @edvspcs = devspec2array($edevice);
-	 $edevs = join(",",@edvspcs);
-	 $edevs =~ s/'/''/g;               # escape ' with ''
-	 
-	 $edanz = $#edvspcs+1;
-	 if($edanz > 1) {
-		 $edevs =~ s/,/','/g;
-		 $edevs = "'".$edevs."'";
-	 }
+ $edanz = split(",",$edevs);                                         # Anzahl der exkludierten Elemente (Lauf2)
+ if($edanz > 1) {
+	 $edevs =~ s/,/','/g;
+	 $edevs = "'".$edevs."'";
  }
  
- Log3 $name, 5, "DbRep $name - Devices for operation - included: $idevs , excluded: $edevs";
  
  ##### inkludierte / excludierte Readings und deren Anzahl ermitteln #####
- my ($ireading,$ereading) = ('','');
- my ($iranz,$eranz)       = (0,0);
+ my ($ireading,$ereading)           = ('','');
+ my ($iranz,$eranz)                 = (0,0);
+ my ($erdswc,$erdgs,$irdswc,$irdgs) = ('','','','');
+ my (@erds,@irds);
+ 
  $reading =~ s/'/''/g;            # escape ' with ''
  
  if($reading =~ /EXCLUDE=/i) {
@@ -9047,27 +9626,54 @@ sub DbRep_specsForSql($$$) {
      $ireading = $reading;
  }
 
+ if($ereading) {
+     @erds  = split(",",$ereading); 
+     foreach my $e (@erds) {
+		 if($e =~ /%/ && $e !~ /^%$/) {       # Readings mit Wildcard (%) erfassen
+			 $erdswc .= "," if($erdswc);
+			 $erdswc .= $e;
+		 } else {
+			 $erdgs .= "," if($erdgs);
+			 $erdgs .= $e;	 
+		 }
+     }                                           
+ }
+ 
  # Readings inkludiert
- my @ireads = split(",",$ireading);
- $iranz = $#ireads+1;
+ @irds  = split(",",$ireading); 
+ foreach my $i (@irds) {
+     if($i =~ /%/ && $i !~ /^%$/) {           # Readings mit Wildcard (%) erfassen
+         $irdswc .= "," if($irdswc);
+         $irdswc .= $i;
+     } else {
+         $irdgs .= "," if($irdgs);
+         $irdgs .= $i;	 
+     }
+ } 
+ 
+ 
+ $iranz = split(",",$irdgs);
  if($iranz > 1) {
-	 $ireading =~ s/,/','/g;
-	 $ireading = "'".$ireading."'";
+	 $irdgs =~ s/,/','/g;
+	 $irdgs = "'".$irdgs."'";
  }
  
  if($ereading) {
      # Readings exkludiert
-	 my @ereads = split(",",$ereading);
-	 $eranz = $#ereads+1;
+	 $eranz = split(",",$erdgs);
 	 if($eranz > 1) {
-		 $ereading =~ s/,/','/g;
-		 $ereading = "'".$ereading."'";
+		 $erdgs =~ s/,/','/g;
+		 $erdgs = "'".$erdgs."'";
 	 }
  }
  
- Log3 $name, 5, "DbRep $name - Readings for operation - included: $ireading, excluded: $ereading ";
+ Log3 $name, 5, "DbRep $name - Readings for operation - \n"
+                ."included ($iranz): $irdgs \n"
+                ."included with wildcard: $irdswc \n"
+                ."excluded ($eranz): $erdgs \n"
+                ."excluded with wildcard: $erdswc";
 
-return ($idevs,$idanz,$ireading,$iranz,$edevs,$edanz,$ereading,$eranz);
+return ($idevs,$idevswc,$idanz,$irdgs,$iranz,$irdswc,$edevs,$edevswc,$edanz,$erdgs,$eranz,$erdswc);
 }
 
 ####################################################################################################
@@ -9104,9 +9710,22 @@ sub DbRep_checktimeaggr ($) {
  my $IsAggrSet   = 0;
  my $aggregation = AttrVal($name,"aggregation","no");
 
- if ( AttrVal($name,"timestamp_begin",undef) || AttrVal($name,"timestamp_end",undef) ||
-	  AttrVal($name,"timeDiffToNow",undef) || AttrVal($name,"timeOlderThan",undef) || AttrVal($name,"timeYearPeriod",undef) ) {
-	  $IsTimeSet = 1;
+ my @a;
+ @a = @{$hash->{HELPER}{REDUCELOG}}  if($hash->{HELPER}{REDUCELOG});
+ @a = @{$hash->{HELPER}{DELENTRIES}} if($hash->{HELPER}{DELENTRIES});
+ my $timeoption = 0;
+ foreach (@a) {                                                    # evtl. Relativzeiten bei "reduceLog" oder "deleteEntries" berücksichtigen
+	 if($_ =~ /\b(\d+(:\d+)?)\b/) {
+         $timeoption = 1;
+	 }
+ }
+ 
+ if ( AttrVal($name,"timestamp_begin", undef) || 
+      AttrVal($name,"timestamp_end",   undef) ||
+	  AttrVal($name,"timeDiffToNow",   undef) || 
+      AttrVal($name,"timeOlderThan",   undef) || 
+      AttrVal($name,"timeYearPeriod",  undef) || $timeoption ) {
+    $IsTimeSet = 1;
  }
  
  if ($aggregation ne "no") {
@@ -9120,7 +9739,7 @@ sub DbRep_checktimeaggr ($) {
      $aggregation = "day";       # für Tagesmittelwertberechnung des deutschen Wetterdienstes immer "day"
 	 $IsAggrSet   = 1;
  }
- if($hash->{LASTCMD} =~ /delEntries|fetchrows|deviceRename|readingRename|tableCurrentFillup|reduceLog/) {
+ if($hash->{LASTCMD} =~ /delEntries|fetchrows|deviceRename|readingRename|tableCurrentFillup|reduceLog|\breadingsDifferenceByTimeDelta\b/) {
 	 $IsAggrSet   = 0;
 	 $aggregation = "no";
  }
@@ -9255,13 +9874,26 @@ return;
 # liefert die Attribute timeOlderThan, timeDiffToNow als Sekunden normiert zurück
 ####################################################################################################
 sub DbRep_normRelTime($) {
- my ($hash) = @_;
- my $name = $hash->{NAME};
- my $tdtn = AttrVal($name, "timeDiffToNow", undef);
- my $toth = AttrVal($name, "timeOlderThan", undef);
+ my ($hash)   = @_;
+ my $name     = $hash->{NAME};
+ my $tdtn     = AttrVal($name, "timeDiffToNow", undef);
+ my $toth     = AttrVal($name, "timeOlderThan", undef);
+ my $fdopt    = 0;                                                    # FullDay Option 
+ my ($y,$d,$h,$m,$s,$aval,@a);
+ 
+ # evtl. Relativzeiten bei "reduceLog" oder "deleteEntries" berücksichtigen
+ @a = @{$hash->{HELPER}{REDUCELOG}}  if($hash->{HELPER}{REDUCELOG});
+ @a = @{$hash->{HELPER}{DELENTRIES}} if($hash->{HELPER}{DELENTRIES});
+ foreach (@a) {     
+	 if($_ =~ /\b(\d+(:\d+)?)\b/) {
+		 my ($od,$nd) = split(":",$1);                                # $od - Tage älter als , $nd - Tage neuer als
+		 $toth        = "d:$od" if($od);
+		 $tdtn        = "d:$nd" if($nd);
+	 }
+ }
   
  if($tdtn && $tdtn =~ /^\s*[ydhms]:(([\d]+.[\d]+)|[\d]+)\s*/) {
-     my ($y,$d,$h,$m,$s);
+     $aval = $tdtn;
 	 if($tdtn =~ /.*y:(([\d]+.[\d]+)|[\d]+).*/) {
 	     $y =  $tdtn;
 	     $y =~ s/.*y:(([\d]+.[\d]+)|[\d]+).*/$1/e; 
@@ -9284,7 +9916,7 @@ sub DbRep_normRelTime($) {
 	 }
      
 	 no warnings 'uninitialized'; 
-	 Log3($name, 4, "DbRep $name - timeDiffToNow - year: $y, day: $d, hour: $h, min: $m, sec: $s ");
+	 Log3($name, 4, "DbRep $name - timeDiffToNow - year: $y, day: $d, hour: $h, min: $m, sec: $s");
 	 use warnings;
      $y = $y?($y*365*86400):0;
      $d = $d?($d*86400):0;      
@@ -9292,12 +9924,13 @@ sub DbRep_normRelTime($) {
      $m = $m?($m*60):0;
      $s = $s?$s:0;
 
-     $tdtn = $y + $d + $h + $m + $s + 1;  # one security second for correct create TimeArray
-     $tdtn = DbRep_corrRelTime($name,$tdtn,1);
+     $tdtn  = $y + $d + $h + $m + $s + 1;                             # one security second for correct create TimeArray
+     $tdtn  = DbRep_corrRelTime($name,$tdtn,1);
+	 $fdopt = ($aval =~ /.*FullDay.*$/ && $tdtn >= 86400)?1:0;        # ist FullDay Option gesetzt UND Zeitdiff >= 1 Tag ?
  }
  
  if($toth && $toth =~ /^\s*[ydhms]:(([\d]+.[\d]+)|[\d]+)\s*/) {
-     my ($y,$d,$h,$m,$s);
+     $aval = $toth;
 	 if($toth =~ /.*y:(([\d]+.[\d]+)|[\d]+).*/) {
 	     $y =  $toth;
 	     $y =~ s/.*y:(([\d]+.[\d]+)|[\d]+).*/$1/e; 
@@ -9320,7 +9953,7 @@ sub DbRep_normRelTime($) {
 	 }
 
 	 no warnings 'uninitialized'; 
-	 Log3($name, 4, "DbRep $name - timeOlderThan - year: $y, day: $d, hour: $h, min: $m, sec: $s ");
+	 Log3($name, 4, "DbRep $name - timeOlderThan - year: $y, day: $d, hour: $h, min: $m, sec: $s");
 	 use warnings;
      $y = $y?($y*365*86400):0;
      $d = $d?($d*86400):0;            
@@ -9328,10 +9961,13 @@ sub DbRep_normRelTime($) {
      $m = $m?($m*60):0;
      $s = $s?$s:0;
 
-     $toth = $y + $d + $h + $m + $s + 1;  # one security second for correct create TimeArray
-     $toth = DbRep_corrRelTime($name,$toth,0);
+     $toth  = $y + $d + $h + $m + $s + 1;                             # one security second for correct create TimeArray
+     $toth  = DbRep_corrRelTime($name,$toth,0);
+	 $fdopt = ($aval =~ /.*FullDay.*$/ && $toth >= 86400)?1:0;        # ist FullDay Option gesetzt UND Zeitdiff >= 1 Tag ?
  }
-return ($toth,$tdtn);
+ Log3($name, 4, "DbRep $name - FullDay option: $fdopt");
+ 
+return ($toth,$tdtn,$fdopt);
 }
 
 ####################################################################################################
@@ -9358,7 +9994,7 @@ sub DbRep_corrRelTime($$$) {
      my $tsend = timelocal($sec1, $min1, $hh1, $dd1, $mm1-1, $yyyy1-1900);
      ($dsec,$dmin,$dhour,$dmday,$dmon,$dyear,$dwday,$dyday,undef)   = localtime($tsend);     # Timestamp Selektionsstartzeit
  }
- $year += 1900;                                                      # aktuelles Jahr
+ $year  += 1900;                                                     # aktuelles Jahr
  $dyear += 1900;                                                     # Startjahr der Selektion
  $cyear += 1900;                                                     # aktuelles Jahr
  if($tdtn) {                                                         
@@ -9543,13 +10179,11 @@ sub DbRep_delread($;$$) {
          # Highlighted Readings löschen und save statefile wegen Inkompatibilitär beim Restart
          if($key =~ /<html><span/) {
              $do = 1;
-             # delete($defs{$name}{READINGS}{$key});
              readingsDelete($hash,$key);
          }
          # Reading löschen wenn Featuelevel > 5.9 und zu lang nach der neuen Festlegung
          if($do == 0 && $featurelevel > 5.9 && !goodReadingName($key)) {
              $do = 1;
-             # delete($defs{$name}{READINGS}{$key});
              readingsDelete($hash,$key);
          }         
      }
@@ -9562,7 +10196,7 @@ sub DbRep_delread($;$$) {
          # Log3 ($name, 1, "DbRep $name - Reading Schlüssel: $key");
          my $dodel = 1;
          foreach my $rdpfdel(@rdpfdel) {
-             if($key =~ /$rdpfdel/ || $key eq "state") {
+             if($key =~ /$rdpfdel/ || $key =~ /\bstate\b|\bassociatedWith\b/) {
                  $dodel = 0;
              }
          }
@@ -9573,9 +10207,9 @@ sub DbRep_delread($;$$) {
      }
  } else {
      foreach my $key(@allrds) {
-         # Log3 ($name, 1, "DbRep $name - Reading Schlüssel: $key");
          # delete($defs{$name}{READINGS}{$key}) if($key ne "state");
-         readingsDelete($hash,$key) if($key ne "state");
+         next if($key =~ /\bstate\b|\bassociatedWith\b/);
+         readingsDelete($hash,$key);
      }
  }
 return undef;
@@ -9648,6 +10282,78 @@ sub DbRep_byteOutput ($) {
 return $ret;
 }
 
+######################################################################################
+#                            Username / Paßwort speichern
+#   $cre = "adminCredentials"  -> Credentials für Datenbank root-Zugriff
+######################################################################################
+sub DbRep_setcredentials ($$@) {
+    my ($hash, $cre, @credentials) = @_;
+    my $name                       = $hash->{NAME};
+    my ($success, $credstr, $index, $retcode,$username,$passwd);
+    my (@key,$len,$i);
+    
+    $credstr = encode_base64(join(':', @credentials));
+    
+    # Beginn Scramble-Routine
+    @key     = qw(1 3 4 5 6 3 2 1 9);
+    $len     = scalar @key;  
+    $i       = 0;  
+    $credstr = join "", map { $i = ($i + 1) % $len; chr((ord($_) + $key[$i]) % 256) } split //, $credstr; 
+    # End Scramble-Routine    
+       
+    $index = $hash->{TYPE}."_".$hash->{NAME}."_".$cre;
+    $retcode = setKeyValue($index, $credstr);
+    
+    if ($retcode) { 
+        Log3($name, 2, "$name - Error while saving the Credentials - $retcode");
+        $success = 0;
+    } else {
+        ($success, $username, $passwd) = DbRep_getcredentials($hash,$cre);
+    }
+
+return ($success);
+}
+
+######################################################################################
+#                             Username / Paßwort abrufen
+#   $cre = "adminCredentials"  -> Credentials für Datenbank root-Zugriff
+######################################################################################
+sub DbRep_getcredentials ($$) {
+    my ($hash, $cre) = @_;
+    my $name         = $hash->{NAME};
+    my ($success, $username, $passwd, $index, $retcode, $credstr);
+    my (@key,$len,$i);
+    
+    $index = $hash->{TYPE}."_".$hash->{NAME}."_".$cre;
+    ($retcode, $credstr) = getKeyValue($index);
+    
+    if ($retcode) {
+        Log3($name, 2, "DbRep $name - Unable to read password from file: $retcode");
+        $success = 0;
+    }  
+        
+    if($credstr) {
+        # Beginn Descramble-Routine
+        @key     = qw(1 3 4 5 6 3 2 1 9); 
+        $len     = scalar @key;  
+        $i       = 0;  
+        $credstr = join "",  
+        map { $i = ($i + 1) % $len; chr((ord($_) - $key[$i] + 256) % 256) } split //, $credstr;   
+        # Ende Descramble-Routine
+        
+        ($username, $passwd) = split(":",decode_base64($credstr));
+    
+        Log3($name, 4, "DbRep $name - $cre successfully read from file");
+    
+    } else {
+        Log3($name, 2, "DbRep $name - ERROR - $cre not set. Use \"set $name adminCredentials\" first.");
+    }
+
+    $success = (defined($passwd))?1:0;
+
+return ($success, $username, $passwd);        
+}
+
 ####################################################################################################
 #                      Schreibroutine in DbRep Keyvalue-File
 ####################################################################################################
@@ -9690,7 +10396,7 @@ sub DbRep_createCmdFile ($) {
                ForceType  => "file",
               };
   my @new;
-  push(@new, "# This file is auto generated from 93_DbRep.",
+  push(@new, "# This file is auto generated from 93_DbRep.pm",
              "# Please do not modify, move or delete it.",
              "");
 
@@ -9792,7 +10498,7 @@ return (undef,$db_MB_start,$db_MB_end);
 sub DbRep_deldumpfiles ($$) {
   my ($hash,$bfile) = @_; 
   my $name          = $hash->{NAME};
-  my $dbloghash     = $hash->{dbloghash};
+  my $dbloghash     = $defs{$hash->{HELPER}{DBLOGDEVICE}};
   my $dump_path_def = $attr{global}{modpath}."/log/";
   my $dump_path_loc = AttrVal($name,"dumpDirLocal", $dump_path_def);
   $dump_path_loc    = $dump_path_loc."/" unless($dump_path_loc =~ m/\/$/);
@@ -10072,15 +10778,15 @@ return \%ncp;
 #                         Funktionsergebnisse in Datenbank schreiben
 ####################################################################################################
 sub DbRep_OutputWriteToDB($$$$$) {
-  my ($name,$device,$reading,$arrstr,$optxt) = @_;
+  my ($name,$device,$reading,$wrstr,$optxt) = @_;
   my $hash       = $defs{$name};
-  my $dbloghash  = $hash->{dbloghash};
+  my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
   my $dbconn     = $dbloghash->{dbconn};
   my $dbuser     = $dbloghash->{dbuser};
   my $dblogname  = $dbloghash->{NAME};
-  my $dbmodel    = $hash->{dbloghash}{MODEL};
-  my $DbLogType  = AttrVal($hash->{dbloghash}{NAME}, "DbLogType", "History");
-  my $supk       = AttrVal($hash->{dbloghash}{NAME}, "noSupportPK", 0);
+  my $dbmodel    = $dbloghash->{MODEL};
+  my $DbLogType  = AttrVal($dblogname, "DbLogType", "History");
+  my $supk       = AttrVal($dblogname, "noSupportPK", 0);
   my $dbpassword = $attr{"sec$dblogname"}{secret};
   my $utf8       = defined($hash->{UTF8})?$hash->{UTF8}:0;
   $device        =~ s/[^A-Za-z\/\d_\.-]/\//g;
@@ -10090,9 +10796,10 @@ sub DbRep_OutputWriteToDB($$$$$) {
   my $unit       = "";
   my $wrt        = 0;
   my $irowdone   = 0;
-  my ($dbh,$sth_ih,$sth_uh,$sth_ic,$sth_uc,$err,$timestamp,$value,$date,$time,$rsf,$aggr,@row_array);
+  my ($dbh,$sth_ih,$sth_uh,$sth_ic,$sth_uc,$err,$timestamp,$value,$date,$time,$hour,$ndate,$ntime,$rsf,$rsn,$aggr,@row_array);
+  my ($year,$mon,$mday,$t1,$corr);
   
-  if(!$hash->{dbloghash}{HELPER}{COLSET}) {
+  if(!$dbloghash->{HELPER}{COLSET}) {
       $err = "No result of \"$hash->{LASTCMD}\" to database written. Cause: column width in \"$hash->{DEF}\" isn't set";
       return ($wrt,$irowdone,$err);
   }
@@ -10104,36 +10811,70 @@ sub DbRep_OutputWriteToDB($$$$$) {
   $type = $defs{$device}{TYPE} if($defs{$device});                # $type vom Device ableiten
   
   if($optxt =~ /avg|sum/) {
-      my @arr = split("\\|", $arrstr);
+      my @arr = split("\\|", $wrstr);
+      my $ele = $#arr;                                            # Nr des letzten Elements
+      my $i   = 0;
       foreach my $row (@arr) {
           my @a              = split("#", $row);
           my $runtime_string = $a[0];                             # Aggregations-Alias (nicht benötigt)
-          $value             = defined($a[1])?sprintf("%.4f",$a[1]):undef;
-          $rsf               = $a[2];                             # Datum / Zeit für DB-Speicherung
+          $value             = defined($a[1])?(looks_like_number($a[1])?sprintf("%.4f",$a[1]):$a[1]):undef;     # Version 8.32.2
+          $rsf               = $a[2];                             # Runtime String first - Datum / Zeit für DB-Speicherung
           ($date,$time)      = split("_",$rsf);
           $time              =~ s/-/:/g if($time);
+          $rsn               = $a[3];                             # Runtime String next - Datum / Zeit für DB-Speicherung
+          ($ndate,$ntime)    = split("_",$rsn);
+          $ntime             =~ s/-/:/g if($ntime);
           
           if($time !~ /^(\d{2}):(\d{2}):(\d{2})$/) {
-              if($aggr =~ /no|day|week|month/) {
-                  $time = "23:59:58";
+              if($aggr =~ /no|day|week|month|year/) {
+                  $time  = "00:00:01";                            # https://forum.fhem.de/index.php/topic,105787.msg1013920.html#msg1013920
+                  $ntime = "23:59:59";
+                  ($year,$mon,$mday) = split("-", $ndate);
+                  $corr              = ($i != $ele) ? 86400 : 0;
+                  $t1                = fhemTimeLocal(59, 59, 23, $mday, $mon-1, $year-1900)-$corr;
+                  ($ndate,undef)     = split(" ",FmtDateTime($t1));                  
               } elsif ($aggr =~ /hour/) {
-                  $time = "$time:59:58";
+                  $hour  = $time;
+                  $time  = "$hour:00:01";                         # https://forum.fhem.de/index.php/topic,105787.msg1013920.html#msg1013920
+                  $ntime = "$hour:59:59";
+                  if ($ntime eq "23:59:59") {
+                      ($year,$mon,$mday) = split("-", $ndate);
+                      $t1                = fhemTimeLocal(59, 59, 23, $mday, $mon-1, $year-1900)-86400;
+                      ($ndate,undef)     = split(" ",FmtDateTime($t1));
+                  }
               }
           }
-          if ($value) {
+          if (defined $value) {
               # Daten auf maximale Länge beschneiden (DbLog-Funktion !)
-              ($device,$type,$event,$reading,$value,$unit) = DbLog_cutCol($hash->{dbloghash},$device,$type,$event,$reading,$value,$unit);
-              push(@row_array, "$date $time|$device|$type|$event|$reading|$value|$unit");             
+              ($device,$type,$event,$reading,$value,$unit) = DbLog_cutCol($dbloghash,$device,$type,$event,$reading,$value,$unit);
+              if($i == 0) {              
+                  push(@row_array, "$date $time|$device|$type|$event|$reading|$value|$unit") if($hash->{LASTCMD} !~ /\bwriteToDBSingle\b/);
+                  push(@row_array, "$ndate $ntime|$device|$type|$event|$reading|$value|$unit");    
+              } else {
+                  if ($aggr =~ /no|day|week|month|year/) {
+                      ($year,$mon,$mday) = split("-", $date);
+                      $t1                = fhemTimeLocal(01, 00, 00, $mday, $mon-1, $year-1900);   
+                      ($date,$time)      = split(" ",FmtDateTime($t1));
+                  } elsif ($aggr =~ /hour/) {
+                      ($year,$mon,$mday) = split("-", $date);
+                      $t1                = fhemTimeLocal(01, 00, $hour, $mday, $mon-1, $year-1900);
+                      ($date,$time)      = split(" ",FmtDateTime($t1));                 
+                  }
+                  push(@row_array, "$date $time|$device|$type|$event|$reading|$value|$unit") if($hash->{LASTCMD} !~ /\bwriteToDBSingle\b/);
+                  push(@row_array, "$ndate $ntime|$device|$type|$event|$reading|$value|$unit");                   
+              }              
           } 
+          $i++;
       }
   }
 
   if($optxt =~ /min|max|diff/) { 
-      my %rh = split("§", $arrstr);
+      my %rh = split("§", $wrstr);
       foreach my $key (sort(keys(%rh))) {
           my @k         = split("\\|",$rh{$key});
-          $rsf          = $k[2];                               # Datum / Zeit für DB-Speicherung
           $value        = defined($k[1])?sprintf("%.4f",$k[1]):undef;
+          $rsf          = $k[2];                                          # Datum / Zeit für DB-Speicherung
+          
           ($date,$time) = split("_",$rsf);
           $time         =~ s/-/:/g if($time);
       
@@ -10146,11 +10887,11 @@ sub DbRep_OutputWriteToDB($$$$$) {
           }
           if ($value) {
               # Daten auf maximale Länge beschneiden (DbLog-Funktion !)
-              ($device,$type,$event,$reading,$value,$unit) = DbLog_cutCol($hash->{dbloghash},$device,$type,$event,$reading,$value,$unit);
+              ($device,$type,$event,$reading,$value,$unit) = DbLog_cutCol($dbloghash,$device,$type,$event,$reading,$value,$unit);
               push(@row_array, "$date $time|$device|$type|$event|$reading|$value|$unit");             
           } 
       }
-  }  
+  }   
   
   if (@row_array) {
       # Schreibzyklus aktivieren
@@ -10170,7 +10911,7 @@ sub DbRep_OutputWriteToDB($$$$$) {
       }
       
       if (lc($DbLogType) =~ m(history)) {
-          # insert history mit/ohne primary key
+          # INSERT history mit/ohne primary key
           if ($usepkh && $dbloghash->{MODEL} eq 'MYSQL') {
               eval { $sth_ih = $dbh->prepare_cached("INSERT IGNORE INTO history (TIMESTAMP, DEVICE, TYPE, EVENT, READING, VALUE, UNIT) VALUES (?,?,?,?,?,?,?)"); };
           } elsif ($usepkh && $dbloghash->{MODEL} eq 'SQLITE') {
@@ -10185,22 +10926,10 @@ sub DbRep_OutputWriteToDB($$$$$) {
               Log3 ($name, 2, "DbRep $name - $@");
               return ($wrt,$irowdone,$err);
           }
-		  # update history mit/ohne primary key
-          if ($usepkh && $hash->{MODEL} eq 'MYSQL') {
-		      $sth_uh = $dbh->prepare("REPLACE INTO history (TYPE, EVENT, VALUE, UNIT, TIMESTAMP, DEVICE, READING) VALUES (?,?,?,?,?,?,?)"); 
-	      } elsif ($usepkh && $hash->{MODEL} eq 'SQLITE') {  
-		      $sth_uh = $dbh->prepare("INSERT OR REPLACE INTO history (TYPE, EVENT, VALUE, UNIT, TIMESTAMP, DEVICE, READING) VALUES (?,?,?,?,?,?,?)");
-	      } elsif ($usepkh && $hash->{MODEL} eq 'POSTGRESQL') {
-		      $sth_uh = $dbh->prepare("INSERT INTO history (TYPE, EVENT, VALUE, UNIT, TIMESTAMP, DEVICE, READING) VALUES (?,?,?,?,?,?,?) ON CONFLICT ($pkc) 
-		                               DO UPDATE SET TIMESTAMP=EXCLUDED.TIMESTAMP, DEVICE=EXCLUDED.DEVICE, TYPE=EXCLUDED.TYPE, EVENT=EXCLUDED.EVENT, READING=EXCLUDED.READING, 
-								       VALUE=EXCLUDED.VALUE, UNIT=EXCLUDED.UNIT");
-	      } else {
-	          $sth_uh = $dbh->prepare("UPDATE history SET TYPE=?, EVENT=?, VALUE=?, UNIT=? WHERE (TIMESTAMP=?) AND (DEVICE=?) AND (READING=?)");
-	      }
       }
       
       if (lc($DbLogType) =~ m(current) ) {
-          # insert current mit/ohne primary key
+          # INSERT current mit/ohne primary key
 	      if ($usepkc && $hash->{MODEL} eq 'MYSQL') {
               eval { $sth_ic = $dbh->prepare("INSERT IGNORE INTO current (TIMESTAMP, DEVICE, TYPE, EVENT, READING, VALUE, UNIT) VALUES (?,?,?,?,?,?,?)"); };	  
 	      } elsif ($usepkc && $hash->{MODEL} eq 'SQLITE') {
@@ -10216,26 +10945,12 @@ sub DbRep_OutputWriteToDB($$$$$) {
               Log3 ($name, 2, "DbRep $name - $@");
               return ($wrt,$irowdone,$err);
           }
-	      # update current mit/ohne primary key
-          if ($usepkc && $hash->{MODEL} eq 'MYSQL') {
-		      $sth_uc = $dbh->prepare("REPLACE INTO current (TIMESTAMP, DEVICE, TYPE, EVENT, READING, VALUE, UNIT) VALUES (?,?,?,?,?,?,?)"); 
-	      } elsif ($usepkc && $hash->{MODEL} eq 'SQLITE') {  
-		      $sth_uc = $dbh->prepare("INSERT OR REPLACE INTO current (TIMESTAMP, DEVICE, TYPE, EVENT, READING, VALUE, UNIT) VALUES (?,?,?,?,?,?,?)");
-	      } elsif ($usepkc && $hash->{MODEL} eq 'POSTGRESQL') {
-		      $sth_uc = $dbh->prepare("INSERT INTO current (TIMESTAMP, DEVICE, TYPE, EVENT, READING, VALUE, UNIT) VALUES (?,?,?,?,?,?,?) ON CONFLICT ($pkc) 
-		                               DO UPDATE SET TIMESTAMP=EXCLUDED.TIMESTAMP, DEVICE=EXCLUDED.DEVICE, TYPE=EXCLUDED.TYPE, EVENT=EXCLUDED.EVENT, READING=EXCLUDED.READING, 
-								       VALUE=EXCLUDED.VALUE, UNIT=EXCLUDED.UNIT");
-	      } else {
-	          $sth_uc = $dbh->prepare("UPDATE current SET TIMESTAMP=?, TYPE=?, EVENT=?, VALUE=?, UNIT=? WHERE (DEVICE=?) AND (READING=?)");
-	      }
       }
       
       eval { $dbh->begin_work() if($dbh->{AutoCommit}); };
       if ($@) {
           Log3($name, 2, "DbRep $name -> Error start transaction for history - $@");
       }
-      
-      Log3 $hash->{NAME}, 4, "DbRep $name - data prepared to db write:"; 
       
       # SQL-Startzeit
       my $wst = [gettimeofday]; 
@@ -10251,46 +10966,143 @@ sub DbRep_OutputWriteToDB($$$$$) {
           $reading   = $a[4];
           $value     = $a[5];
           $unit      = $a[6];
-          Log3 $hash->{NAME}, 4, "DbRep $name - $row";
           
           eval {
               # update oder insert history
               if (lc($DbLogType) =~ m(history) ) {
-                  my $rv_uh = $sth_uh->execute($type,$event,$value,$unit,$timestamp,$device,$reading); 
+                  my $rv_uh = $dbh->do("UPDATE history SET TIMESTAMP=\"$timestamp\", DEVICE=\"$device\", READING=\"$reading\", TYPE=\"$type\", EVENT=\"$event\", VALUE=\"$value\", UNIT=\"$unit\" WHERE TIMESTAMP=\"$timestamp\" AND DEVICE=\"$device\" AND READING=\"$reading\"");  
+                  $uhs += $rv_uh if($rv_uh);
+                  Log3 $hash->{NAME}, 4, "DbRep $name - UPDATE history: $row, RESULT: $rv_uh";
 				  if ($rv_uh == 0) {
-				      $sth_ih->execute($timestamp,$device,$type,$event,$reading,$value,$unit);
-					  $ihs++; 
-				  } else {
-				      $uhs++;
+				      my $rv_ih = $sth_ih->execute($timestamp,$device,$type,$event,$reading,$value,$unit);
+                      $ihs += $rv_ih if($rv_ih); 
+                      Log3 $hash->{NAME}, 4, "DbRep $name - INSERT history: $row, RESULT: $rv_ih";
 				  }
               }
               # update oder insert current
               if (lc($DbLogType) =~ m(current) ) {
-                  my $rv_uc = $sth_uc->execute($timestamp,$type,$event,$value,$unit,$device,$reading);
+                  my $rv_uc = $dbh->do("UPDATE current SET TIMESTAMP=\"$timestamp\", DEVICE=\"$device\", READING=\"$reading\", TYPE=\"$type\", EVENT=\"$event\", VALUE=\"$value\", UNIT=\"$unit\" WHERE DEVICE=\"$device\" AND READING=\"$reading\""); 
                   if ($rv_uc == 0) {
                       $sth_ic->execute($timestamp,$device,$type,$event,$reading,$value,$unit);
                   }
-              }
+              }              
           };
- 
+          
           if ($@) {
               $err = $@;
               Log3 ($name, 2, "DbRep $name - $@");
               $dbh->rollback;
               $dbh->disconnect;
-	          $ihs = 0;
-	          $uhs = 0;
               return ($wrt,0,$err);
-          } else {
-              $irowdone++;
-          }
+          }          
       }    
       
       eval {$dbh->commit() if(!$dbh->{AutoCommit});};
+      
       $dbh->disconnect;
       
 	  Log3 $hash->{NAME}, 3, "DbRep $name - number of lines updated in \"$dblogname\": $uhs"; 
       Log3 $hash->{NAME}, 3, "DbRep $name - number of lines inserted into \"$dblogname\": $ihs"; 
+      $irowdone = $ihs + $uhs; 
+      
+      # SQL-Laufzeit ermitteln
+      $wrt = tv_interval($wst);
+  } 
+  
+return ($wrt,$irowdone,$err);
+}
+
+#######################################################################################################
+# Werte außer dem Extremwert (MAX/$max_value, MIN/$mix_value) aus Datenbank im Zeitraum x für 
+# Device / Reading löschen
+#
+# Struktur $rh{$key} -> 
+# $runtime_string."|".$max_value."|".$row_max_time."|".$runtime_string_first."|".$runtime_string_next
+#
+#######################################################################################################
+sub DbRep_deleteOtherFromDB($$$$) {
+  my ($name,$device,$reading,$rows) = @_;
+  my $hash       = $defs{$name};
+  my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
+  my $dbconn     = $dbloghash->{dbconn};
+  my $dbuser     = $dbloghash->{dbuser};
+  my $dblogname  = $dbloghash->{NAME};
+  my $dbmodel    = $dbloghash->{MODEL};
+  my $dbpassword = $attr{"sec$dblogname"}{secret};
+  my $wrt        = 0;
+  my $irowdone   = 0;
+  my $table      = "history";
+  my ($dbh,$sth,$err,$timestamp,$value,$addon,$row_extreme_time,$runtime_string_first,$runtime_string_next,@row_array);
+  
+  my %rh = split("§", $rows);
+  foreach my $key (sort(keys(%rh))) {
+      # Inhalt $rh{$key} -> $runtime_string."|".$max_value."|".$row_max_time."|".$runtime_string_first."|".$runtime_string_next
+      my @k                 = split("\\|",$rh{$key});
+      $value                = defined($k[1])?$k[1]:undef;
+	  $row_extreme_time     = $k[2];
+      $runtime_string_first = $k[3];  
+      $runtime_string_next  = $k[4];        
+      
+      if ($value) {
+          # den Extremwert von Device/Reading und die Zeitgrenzen in Array speichern -> alle anderen sollen gelöscht werden
+          push(@row_array, "$device|$reading|$value|$row_extreme_time|$runtime_string_first|$runtime_string_next");             
+      } 
+  }
+  
+  if (@row_array) {                               # Löschzyklus
+      eval {$dbh = DBI->connect("dbi:$dbconn", $dbuser, $dbpassword, { PrintError => 0, RaiseError => 1, AutoCommit => 1, AutoInactiveDestroy => 1 });};
+      if ($@) {
+          $err = $@;
+          Log3 ($name, 2, "DbRep $name - $@");
+          return ($wrt,$irowdone,$err);
+      }   
+      
+      eval { $dbh->begin_work() if($dbh->{AutoCommit}); };
+      if ($@) {
+          Log3($name, 2, "DbRep $name -> Error start transaction for history - $@");
+      }
+      
+      # SQL-Startzeit
+      my $wst = [gettimeofday]; 
+      
+	  my $dlines = 0;
+      foreach my $row (@row_array) {
+          my @a = split("\\|",$row);
+          $device               = $a[0];
+          $reading              = $a[1];
+          $value                = $a[2];
+		  $row_extreme_time     = $a[3];
+          $runtime_string_first = $a[4];
+          $runtime_string_next  = $a[5];
+          
+          $addon = "AND (TIMESTAMP,VALUE) != ('$row_extreme_time','$value')";             # (a, b) <> (x, y)
+          
+          my $sql = DbRep_createDeleteSql($hash,$table,$device,$reading,$runtime_string_first,$runtime_string_next,$addon);    
+     
+          Log3 ($name, 4, "DbRep $name - SQL execute: $sql");
+          
+          eval { 
+              $sth = $dbh->prepare($sql);
+              $sth->execute();
+              $dlines += $sth->rows;              
+          };
+          
+          if ($@) {
+              $err = $@;
+              Log3 ($name, 2, "DbRep $name - $@");
+              $dbh->rollback;
+              $dbh->disconnect;
+              return ($wrt,0,$err);
+          }          
+      }    
+      
+      eval {$dbh->commit() if(!$dbh->{AutoCommit});};
+      
+      $dbh->disconnect;
+      
+	  Log3 $hash->{NAME}, 3, "DbRep $name - number of lines deleted in \"$dblogname\": $dlines"; 
+ 
+      $irowdone = $dlines; 
       
       # SQL-Laufzeit ermitteln
       $wrt = tv_interval($wst);
@@ -10309,10 +11121,11 @@ sub DbRep_WriteToDB($$$@) {
   my ($name,$dbh,$dbloghash,$histupd,@row_array) = @_;
   my $hash      = $defs{$name};
   my $dblogname = $dbloghash->{NAME};
-  my $DbLogType = AttrVal($dbloghash->{NAME}, "DbLogType", "History");
-  my $supk      = AttrVal($dbloghash->{NAME}, "noSupportPK", 0);
+  my $DbLogType = AttrVal($dblogname, "DbLogType", "History");
+  my $supk      = AttrVal($dblogname, "noSupportPK", 0);
   my $wrt       = 0;
   my $irowdone  = 0;
+  my $totrows   = 0;
   my ($sth_ih,$sth_uh,$sth_ic,$sth_uc,$err);
          
   # check ob PK verwendet wird, @usepkx?Anzahl der Felder im PK:0 wenn kein PK, $pkx?Namen der Felder:none wenn kein PK 
@@ -10394,8 +11207,7 @@ sub DbRep_WriteToDB($$$@) {
   # SQL-Startzeit
   my $wst = [gettimeofday]; 
       
-  my $ihs = 0;
-  my $uhs = 0;
+  my ($ihs,$uhs) = (0,0);
   foreach my $row (@row_array) {
       my ($date,$time,$device,$type,$event,$reading,$value,$unit) = ($row =~ /^(.*)_ESC_(.*)_ESC_(.*)_ESC_(.*)_ESC_(.*)_ESC_(.*)_ESC_(.*)_ESC_(.*)$/);
       Log3 $hash->{NAME}, 5, "DbRep $name - $row";     
@@ -10409,10 +11221,10 @@ sub DbRep_WriteToDB($$$@) {
                   $rv_uh = $sth_uh->execute($type,$event,$value,$unit,$timestamp,$device,$reading); 
               }
 			  if ($rv_uh == 0) {
-			      $sth_ih->execute($timestamp,$device,$type,$event,$reading,$value,$unit);
-				  $ihs++; 
+			      $ihs      += $sth_ih->execute($timestamp,$device,$type,$event,$reading,$value,$unit);          # V8.30.7
+				  # $ihs++;                                                                                      # V8.30.7
 			  } else {
-			      $uhs++;
+			      $uhs      += $rv_uh;                                                                           # V8.30.7
 			  }
           }
           # update oder insert current
@@ -10428,18 +11240,18 @@ sub DbRep_WriteToDB($$$@) {
           $err = $@;
           Log3 ($name, 2, "DbRep $name - $@");
           $dbh->rollback;
-          $ihs = 0;
-          $uhs = 0;
           return ($wrt,0,$err);
       } else {
-          $irowdone++;
-      }
+	      $totrows++;                                                                                            # V8.30.7
+	  }
   }    
       
   eval {$dbh->commit() if(!$dbh->{AutoCommit});};
-      
-  Log3 $hash->{NAME}, 3, "DbRep $name - number of lines updated in \"$dblogname\": $uhs" if($uhs); 
-  Log3 $hash->{NAME}, 3, "DbRep $name - number of lines inserted into \"$dblogname\": $ihs" if($ihs); 
+  
+  Log3 ($name, 3, "DbRep $name - total lines transfered to standby database: $totrows");                         # V8.30.7
+  Log3 ($name, 3, "DbRep $name - number of lines updated in \"$dblogname\": $uhs") if($uhs); 
+  Log3 ($name, 3, "DbRep $name - number of lines inserted into \"$dblogname\": $ihs") if($ihs);
+  $irowdone = $ihs + $uhs; 
       
   # SQL-Laufzeit ermitteln
   $wrt = tv_interval($wst);
@@ -10452,10 +11264,10 @@ return ($wrt,$irowdone,$err);
 ################################################################
 sub DbRep_checkUsePK ($$$){
   my ($hash,$dbloghash,$dbh) = @_;
-  my $name       = $hash->{NAME};
-  my $dbconn     = $dbloghash->{dbconn};
-  my $upkh = 0;
-  my $upkc = 0;
+  my $name   = $hash->{NAME};
+  my $dbconn = $dbloghash->{dbconn};
+  my $upkh   = 0;
+  my $upkc   = 0;
   my (@pkh,@pkc);
   
   my $db = (split("=",(split(";",$dbconn))[0]))[1];
@@ -10467,8 +11279,8 @@ sub DbRep_checkUsePK ($$$){
   $pkc =~ tr/"//d;
   $upkh = 1 if(@pkh && @pkh ne "none");
   $upkc = 1 if(@pkc && @pkc ne "none");
-  Log3 $hash->{NAME}, 5, "DbRep $name -> Primary Key used in $db.history: $pkh";
-  Log3 $hash->{NAME}, 5, "DbRep $name -> Primary Key used in $db.current: $pkc";
+  Log3 $hash->{NAME}, 5, "DbRep $name -> Primary Key used in $db.history: $upkh ($pkh)";
+  Log3 $hash->{NAME}, 5, "DbRep $name -> Primary Key used in $db.current: $upkc ($pkc)";
 
 return ($upkh,$upkc,$pkh,$pkc);
 }
@@ -10482,6 +11294,22 @@ sub DbRep_numval ($){
   $val = ($val =~ /(-?\d+(\.\d+)?)/ ? $1 : "");
   
 return $val;
+}
+
+####################################################################################################
+#       löscht einen Wert vom $hash  des Hauptprozesses aus einem BlockingCall heraus     
+####################################################################################################
+sub DbRep_delHashValFromBlocking($$;$) {
+  my ($name,$v1,$v2) = @_;
+  my $hash        = $defs{$name};
+
+  if($v2) {
+      delete $hash->{$v1}{$v2};
+  } elsif ($v1) {
+      delete $hash->{$v1};
+  }
+
+return 1;
 }
 
 ################################################################
@@ -10523,12 +11351,12 @@ sub DbRep_setVersionInfo($) {
   if($modules{$type}{META}{x_prereqs_src} && !$hash->{HELPER}{MODMETAABSENT}) {
 	  # META-Daten sind vorhanden
 	  $modules{$type}{META}{version} = "v".$v;              # Version aus META.json überschreiben, Anzeige mit {Dumper $modules{SMAPortal}{META}}
-	  if($modules{$type}{META}{x_version}) {                                                                             # {x_version} ( nur gesetzt wenn $Id: 93_DbRep.pm 19507 2019-05-31 09:03:18Z DS_Starter $ im Kopf komplett! vorhanden )
+	  if($modules{$type}{META}{x_version}) {                                                                             # {x_version} ( nur gesetzt wenn $Id: 93_DbRep.pm 21473 2020-03-21 21:09:33Z DS_Starter $ im Kopf komplett! vorhanden )
 		  $modules{$type}{META}{x_version} =~ s/1.1.1/$v/g;
 	  } else {
 		  $modules{$type}{META}{x_version} = $v; 
 	  }
-	  return $@ unless (FHEM::Meta::SetInternals($hash));                                                                # FVERSION wird gesetzt ( nur gesetzt wenn $Id: 93_DbRep.pm 19507 2019-05-31 09:03:18Z DS_Starter $ im Kopf komplett! vorhanden )
+	  return $@ unless (FHEM::Meta::SetInternals($hash));                                                                # FVERSION wird gesetzt ( nur gesetzt wenn $Id: 93_DbRep.pm 21473 2020-03-21 21:09:33Z DS_Starter $ im Kopf komplett! vorhanden )
 	  if(__PACKAGE__ eq "FHEM::$type" || __PACKAGE__ eq $type) {
 	      # es wird mit Packages gearbeitet -> Perl übliche Modulversion setzen
 		  # mit {<Modul>->VERSION()} im FHEMWEB kann Modulversion abgefragt werden
@@ -10549,7 +11377,7 @@ return;
 sub DbRep_dbValue($$) {
   my ($name,$cmd) = @_;
   my $hash       = $defs{$name};
-  my $dbloghash  = $hash->{dbloghash};
+  my $dbloghash  = $defs{$hash->{HELPER}{DBLOGDEVICE}};
   my $dbconn     = $dbloghash->{dbconn};
   my $dbuser     = $dbloghash->{dbuser};
   my $dblogname  = $dbloghash->{NAME};
@@ -10620,8 +11448,8 @@ sub DbRep_dbValue($$) {
   if($sql =~ m/^\s*(select|pragma|show)/is) {
     while (my @line = $sth->fetchrow_array()) {
       Log3 ($name, 4, "DbRep $name - SQL result: @line");
+      $ret .= "\n" if($nrows);              # Forum: #103295
       $ret .= join("$srs", @line);
-      $ret .= "\n";
       # Anzahl der Datensätze
       $nrows++;
     }
@@ -10712,20 +11540,20 @@ sub DbReadingsVal($$$$) {
   } elsif ($dbmodel eq "SQLITE") {
       $sql = "select value from (
                 select value, (julianday(timestamp) - julianday('$ts')) * 86400.0 as diff from history 
-                where device='MyWetter' and reading='temperature' and timestamp >= '$ts' 
+                where device='$dev' and reading='$reading' and timestamp >= '$ts' 
                 union
                 select value, (julianday('$ts') - julianday(timestamp)) * 86400.0 as diff from history 
-                where device='MyWetter' and reading='temperature' and timestamp < '$ts'
+                where device='$dev' and reading='$reading' and timestamp < '$ts'
               )
               x order by diff limit 1;";    
   
   } elsif ($dbmodel eq "POSTGRESQL") {
       $sql = "select value from (
                 select value, EXTRACT(EPOCH FROM (timestamp - '$ts')) as diff from history 
-                where device='MyWetter' and reading='temperature' and timestamp >= '$ts' 
+                where device='$dev' and reading='$reading' and timestamp >= '$ts' 
                 union
                 select value, EXTRACT(EPOCH FROM ('$ts' - timestamp)) as diff from history 
-                where device='MyWetter' and reading='temperature' and timestamp < '$ts'
+                where device='$dev' and reading='$reading' and timestamp < '$ts'
               )
               x order by diff limit 1;";     
   } else {
@@ -10747,6 +11575,59 @@ sub browser_refresh($) {
   RemoveInternalTimer($hash, "browser_refresh");
   {FW_directNotify("#FHEMWEB:WEB", "location.reload('true')", "")};
   #  map { FW_directNotify("#FHEMWEB:$_", "location.reload(true)", "") } devspec2array("WEB.*");
+return;
+}
+
+###################################################################################
+#                     Associated Devices setzen
+###################################################################################
+sub DbRep_modAssociatedWith ($$$) {
+  my ($hash,$cmd,$awdev) = @_;
+  my $name = $hash->{NAME};
+  my (@naw,@edvs,@edvspcs,$edevswc);
+  my ($edevs,$idevice,$edevice) = ('','','');
+  
+  if($cmd eq "del") {
+      readingsDelete($hash,".associatedWith");
+      return;
+  }
+  
+  ($idevice,$edevice) = split(/EXCLUDE=/i,$awdev);
+  
+  if($edevice) {
+      @edvs = split(",",$edevice); 
+      foreach my $e (@edvs) {
+          $e       =~ s/%/\.*/g if($e !~ /^%$/);                      # SQL Wildcard % auflösen 
+          @edvspcs = devspec2array($e);
+          @edvspcs = map {s/\.\*/%/g; $_; } @edvspcs;
+		  if((map {$_ =~ /%/;} @edvspcs) && $edevice !~ /^%$/) {      # Devices mit Wildcard (%) aussortieren, die nicht aufgelöst werden konnten
+		      $edevswc .= "|" if($edevswc);
+			  $edevswc .= join(" ",@edvspcs);
+		  } else {
+			  $edevs .= "|" if($edevs);
+			  $edevs .= join("|",@edvspcs);	 
+		  }
+      }                                           
+  }
+  
+  if($idevice) {
+      my @nadev = split("[, ]", $idevice);
+      foreach my $d (@nadev) {
+          $d    =~ s/%/\.*/g if($d !~ /^%$/);                         # SQL Wildcard % in Regex
+          my @a = devspec2array($d);
+          foreach(@a) {
+              next if(!$defs{$_});
+              push(@naw, $_) if($_ !~ /$edevs/);
+          }
+      }
+  }
+  
+  if(@naw) {
+      ReadingsSingleUpdateValue ($hash, ".associatedWith", join(" ",@naw), 0);
+  } else {
+      readingsDelete($hash, ".associatedWith");
+  }
+  
 return;
 }
 
@@ -10871,9 +11752,18 @@ return;
   <br><br>
   
   <b>Examples: </b><br>
-  my $ret = DbReadingsVal("Rep.LogDB1","MyWetter:temperature","2018-01-13_08:00:00",""); <br>
-  attr &lt;name&gt; userReadings oldtemp {DbReadingsVal("Rep.LogDB1","MyWetter:temperature","2018-04-13_08:00:00","")}
-  <br><br>
+  <pre>
+  $ret = DbReadingsVal("Rep.LogDB1","MyWetter:temperature","2018-01-13_08:00:00","");
+  attr &lt;name&gt; userReadings oldtemp {DbReadingsVal("Rep.LogDB1","MyWetter:temperature","2018-04-13_08:00:00","")} 
+  attr &lt;name&gt; userReadings todayPowerIn 
+    {  
+       my ($sec,$min,$hour,$mday,$month,$year,$wday,$yday,$isdst) = localtime(gettimeofday());
+       $month++; 
+       $year+=1900;
+       my $today = sprintf('%04d-%02d-%02d', $year,$month,$mday);
+       DbReadingsVal("Rep.LogDB1","SMA_Energymeter:Bezug_Wirkleistung_Zaehler",$today."_00:00:00",0)
+    } 
+  </pre>
   
   The command syntax for the FHEM command is: <br><br>
   
@@ -10962,21 +11852,36 @@ return;
  <br><br>
  
  <ul><ul>
-    <li><b> averageValue [display | writeToDB]</b> 
-                                 - calculates the average value of database column "VALUE" between period given by 
-                                 timestamp-<a href="#DbRepattr">attributes</a> which are set. 
-                                 The reading to evaluate must be specified by attribute "reading".  <br>
-                                 By attribute "averageCalcForm" the calculation variant for average determination will be configured.
+ 
+     <li><b> adminCredentials &lt;User&gt; &lt;Passwort&gt; </b>          
+	                           - Save a user / password for the privileged respectively administrative database access. 
+                               The user is required for database operations which has to be executed by a privileged user. 
+                               Please see also attribute <a href="#useAdminCredentials">'useAdminCredentials'</a>. <br>
+                               (only valid if database type is MYSQL and DbRep-type "Client")
+                               
+                               </li> <br>
+ 
+    <li><b> averageValue [display | writeToDB | writeToDBSingle]</b>
+                                 - calculates an average value of the database field "VALUE" in the time limits 
+	                             of the possible time.*-attributes. <br><br>
                                  
-                                 Is no or the option "display" specified, the results are only displayed. Using 
-                                 option "writeToDB" the calculated results are stored in the database with a new reading
-                                 name. <br>
-                                 The new readingname is built of a prefix and the original reading name,
-                                 in which the original reading name can be replaced by the value of attribute "readingNameMap".								 
-                                 The prefix is made up of the creation function and the aggregation. <br>
-                                 The timestamp of the new stored readings is deviated from aggregation period, 
-                                 unless no unique point of time of the result can be determined. 
-                                 The field "EVENT" will be filled with "calculated".<br><br>
+                                 The reading to be evaluated must be specified in the attribute <a href="#reading">reading</a> 
+								 must be specified.                                  
+                                 With the attribute <a href="#averageCalcForm">averageCalcForm</a> the calculation variant 
+                                 is used for Averaging defined. <br><br>
+                                 
+                                 If none or the option <b>display</b> is specified, the results are only displayed. With 
+                                 the options <b>writeToDB</b> or <b>writeToDBSingle</b> the calculation results are written
+                                 with a new reading name into the database. <br>
+                                 <b>writeToDB</b> writes one value each at the beginning and end of an evaluation period.
+                                 <b>writeToDBSingle</b> writes only one value at the end of an evaluation period. <br><br>
+                                 
+                                 The new reading name is formed from a prefix and the original reading name, 
+								 where the original reading name can be replaced by the attribute "readingNameMap".
+                                 The prefix consists of the educational function and the aggregation. <br>
+                                 The timestamp of the new readings in the database is determined by the set aggregation period 
+                                 if no clear time of the result can be determined. 
+                                 The field "EVENT" is filled with "calculated". <br><br>
                                  
                                  <ul>
                                  <b>Example of building a new reading name from the original reading "totalpac":</b> <br>
@@ -10996,7 +11901,7 @@ return;
                                     <tr><td> <b>executeAfterProc</b>                       </td><td>: execution of FHEM command (or Perl-routine) after operation </td></tr>
                                     <tr><td> <b>reading</b>                                </td><td>: include or exclude &lt;reading&gt; from selection </td></tr>                                      
                                     <tr><td> <b>time.*</b>                                 </td><td>: a number of attributes to limit selection by time </td></tr>
-                                    <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
+                                    <tr><td> <b>valueFilter</b>                            </td><td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
                                     </table>
 	                             </ul>
 	                             <br>
@@ -11023,9 +11928,11 @@ return;
                                 
                                 <table>  
                                 <colgroup> <col width=15%> <col width=85%> </colgroup>
-                                   <tr><td style="vertical-align:top"><b>&lt;old string&gt; :</b> <td><li>a simple string with/without spaces, e.g. "OL 12" </li>
+                                   <tr><td><b>&lt;old string&gt; :</b> </td><td><li>a simple string with/without spaces, e.g. "OL 12" </li>
 									                                                                  <li>a string with usage of SQL-wildcard, e.g. "%OL%" </li> </td></tr>
-                                   <tr><td style="vertical-align:top"><b>&lt;new string&gt; :</b> <td><li>a simple string with/without spaces, e.g. "12 kWh" </li>
+                                   <tr><td> </td><td> </td></tr>
+								   <tr><td> </td><td> </td></tr>
+								   <tr><td><b>&lt;new string&gt; :</b> </td><td><li>a simple string with/without spaces, e.g. "12 kWh" </li>
                                                                                                       <li>Perl code embedded in "{}" with quotes, e.g. "{($VALUE,$UNIT) = split(" ",$VALUE)}". 
                                                                                                           The perl expression the variables $VALUE and $UNIT are committed to. 
 								  																	      The variables are changable within the perl code. The returned value 
@@ -11058,7 +11965,7 @@ return;
                                       <tr><td> <b>time.*</b>                                 </td><td>: a number of attributes to limit selection by time </td></tr>
  	                                  <tr><td> <b>executeBeforeProc</b>                      </td><td>: execute a FHEM command (or Perl-routine) before start of changeValue </td></tr>
                                       <tr><td> <b>executeAfterProc</b>                       </td><td>: execute a FHEM command (or Perl-routine) after changeValue is finished </td></tr>
-                                      <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
+                                      <tr><td> <b>valueFilter</b>                            </td><td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
                                       </table>
 	                               </ul>
 	                               <br>
@@ -11089,7 +11996,7 @@ return;
                                                       <tr><td> <b>device</b>                                 </td><td>: include or exclude &lt;device&gt; from selection </td></tr>
                                                       <tr><td> <b>reading</b>                                </td><td>: include or exclude &lt;reading&gt; from selection </td></tr>
                                                       <tr><td> <b>time.*</b>                                 </td><td>: a number of attributes to limit selection by time </td></tr>
-                                                      <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
+                                                      <tr><td> <b>valueFilter</b>                            </td><td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
                                                       </table>
 	                                               </ul>
 	                                               <br>                                           
@@ -11149,7 +12056,7 @@ return;
  	                                <tr><td> <b>executeBeforeProc</b>                      </td><td>: execute a FHEM command (or Perl-routine) before start of the function </td></tr>
                                     <tr><td> <b>executeAfterProc</b>                       </td><td>: execute a FHEM command (or Perl-routine) after the function is finished </td></tr>                       
 								    <tr><td> <b>time.*</b>                                 </td><td>: a number of attributes to limit selection by time </td></tr>
-                                    <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
+                                    <tr><td> <b>valueFilter</b>                            </td><td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
 									</table>
 	                             </ul>
 	                             <br>
@@ -11157,19 +12064,27 @@ return;
                                 
                                  </li>
                                  
-    <li><b> delEntries </b>   -  deletes all database entries or only the database entries specified by <a href="#DbRepattr">attributes</a> Device and/or 
-	                             Reading and the entered time period between "timestamp_begin", "timestamp_end" (if set) or "timeDiffToNow/timeOlderThan". <br><br>
+    <li><b> delEntries [&lt;no&gt;[:&lt;nn&gt;]] </b>   -  deletes all database entries or only the database entries specified by 
+	                             <a href="#DbRepattr">attributes</a> device and/or reading. <br><br>
+								 
+								 The time limits are considered according to the available time.*-attributes: <br><br>
                                  
                                  <ul>
-                                 "timestamp_begin" is set <b>-&gt;</b> deletes db entries <b>from</b> this timestamp until current date/time <br>
-                                 "timestamp_end" is set  <b>-&gt;</b>  deletes db entries <b>until</b> this timestamp <br>
-                                 both Timestamps are set <b>-&gt;</b>  deletes db entries <b>between</b> these timestamps <br>
-                                 "timeOlderThan" is set  <b>-&gt;</b>  delete entries <b>older</b> than current time minus "timeOlderThan" <br>
-                                 "timeDiffToNow" is set  <b>-&gt;</b>  delete db entries <b>from</b> current time minus "timeDiffToNow" until now <br>
-                                 
+                                  "timestamp_begin" is set <b>-&gt;</b> deletes db entries <b>from</b> this timestamp until current date/time <br>
+                                  "timestamp_end" is set  <b>-&gt;</b>  deletes db entries <b>until</b> this timestamp <br>
+                                  both Timestamps are set <b>-&gt;</b>  deletes db entries <b>between</b> these timestamps <br>
+                                  "timeOlderThan" is set  <b>-&gt;</b>  delete entries <b>older</b> than current time minus "timeOlderThan" <br>
+                                  "timeDiffToNow" is set  <b>-&gt;</b>  delete db entries <b>from</b> current time minus "timeDiffToNow" until now <br>
+                                 </ul>
+								 
                                  <br>
-                                 Due to security reasons the attribute <a href="#DbRepattr">attribute</a> "allowDeletion" needs to be set to unlock the 
+                                 Due to security reasons the attribute <a href="#allowDeletion">allowDeletion</a> needs to be set to unlock the 
 								 delete-function. <br>
+								 Time limits (days) can be specified as an option. In this case, any time.*-attributes set are 
+								 overmodulated.
+								 Records older than <b>&lt;no&gt;</b> days and (optionally) newer than 
+								 <b>&lt;nn&gt;</b> days are considered.
+								 <br><br>
                                  
                                  The relevant attributes to control function changeValue delEntries are: <br><br>
 
@@ -11189,7 +12104,6 @@ return;
                                  
                                  </li>
 								 <br>
-                                 </ul>
 								 
     <li><b> delSeqDoublets [adviceRemain | adviceDelete | delete]</b> -  show respectively delete identical sequentially datasets.
                                  Therefore Device,Reading and Value of the sequentially datasets are compared.
@@ -11271,7 +12185,7 @@ return;
                                     <tr><td> <b>executeAfterProc</b>                       </td><td>: execute a FHEM command (or Perl-routine) after the function is finished </td></tr>                       
   						            <tr><td> <b>seqDoubletsVariance</b>                    </td><td>: Up to this value consecutive numerical datasets are handled as identical and should be deleted </td></tr>                                      
 								    <tr><td> <b>time.*</b>                                 </td><td>: a number of attributes to limit selection by time </td></tr>
-                                    <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
+                                    <tr><td> <b>valueFilter</b>                            </td><td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
 								 </table>
 	                             </ul>
                                 
@@ -11299,14 +12213,12 @@ return;
                                  </ul>     
     
     <li><b> diffValue [display | writeToDB]</b>    
-                                 - calculates the difference of database column "VALUE" between period given by 
-                                 <a href="#DbRepattr">attributes</a> "timestamp_begin", "timestamp_end" or "timeDiffToNow / timeOlderThan". 
-                                 The reading to evaluate must be defined using attribute "reading". 
-                                 This function is mostly reasonable if readingvalues are increasing permanently and don't write value-differences to the database. 
-                                 The difference will be generated from the first available dataset (VALUE-Field) to the last available dataset between the 
-								 specified time linits/aggregation, in which a balanced difference value of the previous aggregation period will be transfered to the
-								 following aggregation period in case this period contains a value. <br>
-								 A possible counter overrun (restart with value "0") will be considered (compare <a href="#DbRepattr">attribute</a> "diffAccept"). <br><br>
+                                 - calculates the difference of database column "VALUE" in the given time period. (see also the several time*-attributes). <br> 
+                                 The reading to evaluate must be defined in attribute <a href="#reading">reading</a>. <br>
+                                 This function is mostly reasonable if values are increasing permanently and don't write value differences into the database. 
+								 The difference will always be generated between all consecutive datasets (VALUE-Field) and add them together, in doing add carry value of the 
+								 previous aggregation period to the next aggregation period in case the previous period contains a value. <br>
+								 A possible counter overrun (restart with value "0") will be considered (compare attribute <a href="#diffAccept">diffAccept</a>). <br><br>
 								 
 								 If only one dataset will be found within the evalution period, the difference can be calculated only in combination with the balanced
 								 difference of the previous aggregation period. In this case a logical inaccuracy according the assignment of the difference to the particular aggregation period
@@ -11326,7 +12238,7 @@ return;
                                  option "writeToDB" the calculation results are stored in the database with a new reading
                                  name. <br>
                                  The new readingname is built of a prefix and the original reading name,
-                                 in which the original reading name can be replaced by the value of attribute "readingNameMap".	
+                                 in which the original reading name can be partly replaced by the value of attribute <a href="#readingNameMap">readingNameMap</a>.	
                                  The prefix is made up of the creation function and the aggregation. <br>
                                  The timestamp of the new stored readings is deviated from aggregation period, 
                                  unless no unique point of time of the result can be determined. 
@@ -11345,14 +12257,14 @@ return;
                                  <table>  
                                  <colgroup> <col width=5%> <col width=95%> </colgroup>
 								    <tr><td> <b>aggregation</b>                            </td><td>: choose the aggregation period </td></tr>
-								    <tr><td> <b>diffAccept</b>                             </td><td>: the maximum accepted difference between sequential records </td></tr>
+								    <tr><td> <b>diffAccept</b>                             </td><td>: the accepted maximum difference between sequential records </td></tr>
                                     <tr><td> <b>device</b>                                 </td><td>: include or exclude &lt;device&gt; from selection </td></tr>
 	                                <tr><td> <b>executeBeforeProc</b>                      </td><td>: execution of FHEM command (or Perl-routine) before operation </td></tr>
                                     <tr><td> <b>executeAfterProc</b>                       </td><td>: execution of FHEM command (or Perl-routine) after operation </td></tr>
                                     <tr><td> <b>reading</b>                                </td><td>: include or exclude &lt;reading&gt; from selection </td></tr>                                      
  	                                <tr><td> <b>readingNameMap</b>                         </td><td>: rename the resulted reading name </td></tr>
  								    <tr><td> <b>time.*</b>                                 </td><td>: a number of attributes to limit selection by time </td></tr>
-                                    <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
+                                    <tr><td> <b>valueFilter</b>                            </td><td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
 								 </table>
 	                             </ul>
 	                             <br>
@@ -11392,15 +12304,15 @@ return;
 	                               <ul>
                                    <table>  
                                    <colgroup> <col width=5%> <col width=95%> </colgroup>
-                                      <tr><td> dumpComment              </td><td>: User comment in head of dump file  </td></tr>
-                                      <tr><td> dumpCompress             </td><td>: compress of dump files after creation </td></tr>
-                                      <tr><td> dumpDirLocal             </td><td>: the local destination directory for dump file creation </td></tr>
-                                      <tr><td> dumpMemlimit             </td><td>: limits memory usage </td></tr>
-                                      <tr><td> dumpSpeed                </td><td>: limits CPU utilization </td></tr>
-	                                  <tr><td> dumpFilesKeep            </td><td>: number of dump files to keep </td></tr>
-	                                  <tr><td> executeBeforeProc        </td><td>: execution of FHEM command (or Perl-routine) before dump </td></tr>
-                                      <tr><td> executeAfterProc         </td><td>: execution of FHEM command (or Perl-routine) after dump </td></tr>
-	                                  <tr><td> optimizeTablesBeforeDump </td><td>: table optimization before dump </td></tr>
+                                      <tr><td> <b>dumpComment </b>              </td><td>: User comment in head of dump file  </td></tr>
+                                      <tr><td> <b>dumpCompress </b>             </td><td>: compress of dump files after creation </td></tr>
+                                      <tr><td> <b>dumpDirLocal </b>             </td><td>: the local destination directory for dump file creation </td></tr>
+                                      <tr><td> <b>dumpMemlimit </b>             </td><td>: limits memory usage </td></tr>
+                                      <tr><td> <b>dumpSpeed </b>                </td><td>: limits CPU utilization </td></tr>
+	                                  <tr><td> <b>dumpFilesKeep </b>            </td><td>: number of dump files to keep </td></tr>
+	                                  <tr><td> <b>executeBeforeProc </b>        </td><td>: execution of FHEM command (or Perl-routine) before dump </td></tr>
+                                      <tr><td> <b>executeAfterProc </b>         </td><td>: execution of FHEM command (or Perl-routine) after dump </td></tr>
+	                                  <tr><td> <b>optimizeTablesBeforeDump </b> </td><td>: table optimization before dump </td></tr>
                                    </table>
 	                               </ul>
 	                               <br> 								 
@@ -11449,13 +12361,13 @@ return;
 	                               <ul>
                                    <table>  
                                    <colgroup> <col width=5%> <col width=95%> </colgroup>
-                                      <tr><td> dumpDirRemote            </td><td>: destination directory of dump file on remote server  </td></tr>
-                                      <tr><td> dumpCompress             </td><td>: compress of dump files after creation </td></tr>
-                                      <tr><td> dumpDirLocal             </td><td>: the local mounted directory dumpDirRemote </td></tr>
-	                                  <tr><td> dumpFilesKeep            </td><td>: number of dump files to keep </td></tr>
-	                                  <tr><td> executeBeforeProc        </td><td>: execution of FHEM command (or Perl-routine) before dump </td></tr>
-                                      <tr><td> executeAfterProc         </td><td>: execution of FHEM command (or Perl-routine) after dump </td></tr>
-	                                  <tr><td> optimizeTablesBeforeDump </td><td>: table optimization before dump </td></tr>
+                                      <tr><td> <b>dumpDirRemote </b>            </td><td>: destination directory of dump file on remote server  </td></tr>
+                                      <tr><td> <b>dumpCompress </b>             </td><td>: compress of dump files after creation </td></tr>
+                                      <tr><td> <b>dumpDirLocal </b>             </td><td>: the local mounted directory dumpDirRemote </td></tr>
+	                                  <tr><td> <b>dumpFilesKeep </b>            </td><td>: number of dump files to keep </td></tr>
+	                                  <tr><td> <b>executeBeforeProc </b>        </td><td>: execution of FHEM command (or Perl-routine) before dump </td></tr>
+                                      <tr><td> <b>executeAfterProc </b>         </td><td>: execution of FHEM command (or Perl-routine) after dump </td></tr>
+	                                  <tr><td> <b>optimizeTablesBeforeDump </b> </td><td>: table optimization before dump </td></tr>
                                    </table>
 	                               </ul>
 	                               <br> 
@@ -11606,8 +12518,7 @@ return;
                                       <tr><td> <b>executeAfterProc</b>                     </td><td>: execution of FHEM command (or Perl-routine) after export </td></tr>
 	                                  <tr><td> <b>expimpfile</b>                           </td><td>: the name of exportfile </td></tr>
                                       <tr><td> <b>time.*</b>                               </td><td>: a number of attributes to limit selection by time </td></tr>
-                                    <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
-
+                                      <tr><td> <b>valueFilter</b>                          </td><td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
                                       </table>
 	                               </ul>                                   
                                  
@@ -11624,7 +12535,8 @@ return;
                                  Every reading of result is composed of the dataset timestring , an index, the device name
                                  and the reading name.
                                  The function has the capability to reconize multiple occuring datasets (doublets).
-                                 Such doublets are marked by an index > 1. <br>
+                                 Such doublets are marked by an index > 1. Optional a Unique-Index is appended if 
+                                 datasets with identical timestamp, device and reading but different value are existing. <br>
                                  Doublets can be highlighted in terms of color by setting attribut e"fetchMarkDuplicates". <br><br>
                                  
                                  <b>Note:</b> <br>
@@ -11644,8 +12556,8 @@ return;
                                  
                                  <ul>
                                  <b>Example:</b> <br>
-                                 2017-10-22_03-04-43__1__SMA_Energymeter__Bezug_WirkP_Kosten_Diff <br>
-                                 # &lt;date&gt;_&lt;time&gt;__&lt;index&gt;__&lt;device&gt;__&lt;reading&gt;
+                                 2017-10-22_03-04-43__1__SMA_Energymeter__Bezug_WirkP_Kosten_Diff__[1] <br>
+                                 # &lt;date&gt;_&lt;time&gt;__&lt;index&gt;__&lt;device&gt;__&lt;reading&gt;__[Unique-Index]
                                  </ul>                                 
                                  <br>
 
@@ -11654,13 +12566,14 @@ return;
 	                               <ul>
                                    <table>  
                                    <colgroup> <col width=5%> <col width=95%> </colgroup>
-                                      <tr><td> <b>fetchRoute</b>                             </td><td>: direction of selection read in database </td></tr>
-                                      <tr><td> <b>limit</b>                                  </td><td>: limits the number of datasets to select and display </td></tr>
-                                      <tr><td> <b>fetchMarkDuplicates</b>                    </td><td>: Highlighting of found doublets </td></tr>
-                                      <tr><td> <b>device</b>                                 </td><td>: include or exclude &lt;device&gt; from selection </td></tr>
-                                      <tr><td> <b>reading</b>                                </td><td>: include or exclude &lt;reading&gt; from selection </td></tr>                                      
-                                      <tr><td> <b>time.*</b>                                 </td><td>: A number of attributes to limit selection by time </td></tr>
-                                      <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
+                                      <tr><td> <b>device</b>               </td><td>: include or exclude &lt;device&gt; from selection </td></tr>
+                                      <tr><td> <b>fetchRoute</b>           </td><td>: direction of selection read in database </td></tr>                                      
+                                      <tr><td> <b>fetchMarkDuplicates</b>  </td><td>: Highlighting of found doublets </td></tr>
+                                      <tr><td> <b>fetchValueFn</b>         </td><td>: the displayed value of the VALUE database field can be changed by a function before the reading is created </td></tr>
+                                      <tr><td> <b>limit</b>                </td><td>: limits the number of datasets to select and display </td></tr>
+                                      <tr><td> <b>reading</b>              </td><td>: include or exclude &lt;reading&gt; from selection </td></tr>                                      
+                                      <tr><td> <b>time.*</b>               </td><td>: A number of attributes to limit selection by time </td></tr>
+                                      <tr><td> <b>valueFilter</b>          </td><td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
                                    </table>
 	                               </ul>
 	                               <br>
@@ -11674,7 +12587,7 @@ return;
 								 </li> <br> 
                                  
     <li><b> index &lt;Option&gt; </b>          
-	                           - Reports the existing indexes in the database or creates the needed indexes. 
+	                           - Reports the existing indexes in the database or creates the index which is needed. 
                                If the index is already created, it will be renewed (dropped and new created) <br><br> 
 
                                The possible options are:	<br><br>									 
@@ -11690,6 +12603,20 @@ return;
                                  </table>              
 	                           </ul>
 	                           <br>
+                               
+                               For a better overview the relevant attributes for this operation are listed here: <br><br>
+
+	                           <ul>
+                                 <table>  
+                                   <colgroup> <col width=42%> <col width=58%> </colgroup>
+                                   <tr><td> <b>useAdminCredentials</b>        </td><td>: use privileged user for the operation </td></tr>
+                                 </table>
+	                           </ul>
+	                           <br>
+	                           <br>
+                               
+                               <b>Note:</b> <br>
+                               The used database user needs the ALTER, CREATE and INDEX privilege. <br>
                                    
                                </li> <br>
                                  
@@ -11745,22 +12672,25 @@ return;
                                  </ul>  
                                  <br>                                  
     
-    <li><b> maxValue [display | writeToDB]</b>     
+    <li><b> maxValue [display | writeToDB | deleteOther]</b>     
                                  - calculates the maximum value of database column "VALUE" between period given by 
-                                 <a href="#DbRepattr">attributes</a> "timestamp_begin", "timestamp_end" or "timeDiffToNow / timeOlderThan". 
-                                 The reading to evaluate must be defined using attribute "reading". 
+                                 <a href="#DbRepattr">attributes</a> "timestamp_begin", "timestamp_end" / "timeDiffToNow / timeOlderThan" and so on. 
+                                 The reading to evaluate must be defined using attribute <a href="#reading">reading</a>. 
                                  The evaluation contains the timestamp of the <b>last</b> appearing of the identified maximum value 
-                                 within the given period.  <br>
+                                 within the given period.  <br><br>
                                  
-                                 Is no or the option "display" specified, the results are only displayed. Using 
-                                 option "writeToDB" the calculated results are stored in the database with a new reading
+                                 If no option or the option <b>display</b> is specified, the results are only displayed. Using 
+                                 option <b>writeToDB</b> the calculated results are stored in the database with a new reading
                                  name. <br>
+								 
                                  The new readingname is built of a prefix and the original reading name,
-                                 in which the original reading name can be replaced by the value of attribute "readingNameMap".	 
+                                 in which the original reading name can be replaced by the value of attribute <a href="#readingNameMap">readingNameMap</a>.	 
                                  The prefix is made up of the creation function and the aggregation. <br>
                                  The timestamp of the new stored readings is deviated from aggregation period, 
                                  unless no unique point of time of the result can be determined. 
-                                 The field "EVENT" will be filled with "calculated".<br><br>
+                                 The field "EVENT" will be filled with "calculated". <br><br>
+								 
+								 With option <b>deleteOther</b> all datasets except the dataset with the maximum value are deleted. <br><br>
                                  
                                  <ul>
                                  <b>Example of building a new reading name from the original reading "totalpac":</b> <br>
@@ -11781,28 +12711,31 @@ return;
                                     <tr><td> <b>reading</b>                                </td><td>: include or exclude &lt;reading&gt; from selection </td></tr> 
                                     <tr><td> <b>readingNameMap</b>                         </td><td>: rename the resulted readings </td></tr>									
 								    <tr><td> <b>time.*</b>                                 </td><td>: a number of attributes to limit selection by time </td></tr>
-                                    <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
+                                    <tr><td> <b>valueFilter</b>                            </td><td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
 								 </table>
 	                             </ul>                                 
                                  
                                  </li><br>
                                  
-    <li><b> minValue [display | writeToDB]</b>     
+    <li><b> minValue [display | writeToDB | deleteOther]</b>     
                                  - calculates the minimum value of database column "VALUE" between period given by 
-                                 <a href="#DbRepattr">attributes</a> "timestamp_begin", "timestamp_end" or "timeDiffToNow / timeOlderThan". 
-                                 The reading to evaluate must be defined using attribute "reading". 
+                                 <a href="#DbRepattr">attributes</a> "timestamp_begin", "timestamp_end" / "timeDiffToNow / timeOlderThan" and so on. 
+                                 The reading to evaluate must be defined using attribute <a href="#reading">reading</a>.  
                                  The evaluation contains the timestamp of the <b>first</b> appearing of the identified minimum 
-                                 value within the given period.  <br>
+                                 value within the given period.  <br><br>
                                  
-                                 Is no or the option "display" specified, the results are only displayed. Using 
-                                 option "writeToDB" the calculated results are stored in the database with a new reading
+                                 If no option or the option <b>display</b> is specified, the results are only displayed. Using 
+                                 option <b>writeToDB</b> the calculated results are stored in the database with a new reading
                                  name. <br>
+								 
                                  The new readingname is built of a prefix and the original reading name,
-                                 in which the original reading name can be replaced by the value of attribute "readingNameMap".	
+                                 in which the original reading name can be replaced by the value of attribute <a href="#readingNameMap">readingNameMap</a>.
                                  The prefix is made up of the creation function and the aggregation. <br>
                                  The timestamp of the new stored readings is deviated from aggregation period, 
                                  unless no unique point of time of the result can be determined. 
-                                 The field "EVENT" will be filled with "calculated".<br><br>
+                                 The field "EVENT" will be filled with "calculated". <br><br>
+								 
+								 With option <b>deleteOther</b> all datasets except the dataset with the maximum value are deleted. <br><br>
                                  
                                  <ul>
                                  <b>Example of building a new reading name from the original reading "totalpac":</b> <br>
@@ -11823,7 +12756,7 @@ return;
                                     <tr><td> <b>reading</b>                                </td><td>: include or exclude &lt;reading&gt; from selection </td></tr> 
                                     <tr><td> <b>readingNameMap</b>                         </td><td>: rename the resulted readings </td></tr>									
 								    <tr><td> <b>time.*</b>                                 </td><td>: a number of attributes to limit selection by time </td></tr>
-                                    <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
+                                    <tr><td> <b>valueFilter</b>                            </td><td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
 								 </table>
 	                             </ul>                                   
                                  
@@ -11865,90 +12798,92 @@ return;
                                  is operating in asynchronous mode to avoid FHEMWEB from blocking. <br><br> 
                                  </li> <br>
                                  
-    <li><b> reduceLog [average[=day]] </b> <br>
-                                 Reduces historical records within the limits given by the "time.*"-attributes to one record 
-                                 (the 1st) each hour per device & reading. 
-                                 At least one of the "time.*"-attributes must be set (pls. see table below).
-                                 Each of missing time limit will be calculated by the module itself in this case.
+ <li><b> reduceLog [&lt;no&gt;[:&lt;nn&gt;]] [average[=day]] [EXCLUDE=device1:reading1,device2:reading2,...] [INCLUDE=device:reading] </b> <br>
+                                 Reduces historical data sets. <br><br>
+								 
+								 <b>Method without option specification</b> <br><br>
+								 
+								 If no options are specified, the data will be stored within the time specified by the <b>time.*</b> attributes. 
+                                 Time limits reduced to one entry (the first) per hour per Device & Reading.
+                                 At least one of the <b>time.*</b> attributes must be set (see table below). 
+                                 In this case, the missing time limit is calculated by the module.
                                  <br><br>
                                  
-                                 With the optional argument 'average' not only the records will be reduced, but all numerical 
-                                 values of an hour will be reduced to a single average.
-                                 With option 'average=day' all numerical values of a day are reduced to a single average 
-                                 (implies 'average'). <br><br>
+                                 With the attributes <b>device</b> and <b>reading</b> the data records to be considered can be included
+                                 or be excluded. Both restrictions reduce the selected data and reduce the
+                                 resource requirements. 
+                                 The read "reduceLogState" contains the execution result of the last reduceLog command.  <br><br>
+								 
+                 	             Taking the above into account, the following attributes are relevant for this function: <br><br>
                                  
-                                 By setting attributes "device" and/or "reading" the records to be considered could be included
-                                 respectively excluded. Both containments delimit the selected data from database and may 
-                                 reduce the system RAM load. 
-                                 The reading "reduceLogState" contains the result of the last executed reducelog run.  <br><br>
-                                 
-                 	             The relevant attributes for this function are: <br><br>
-                                 
-	                               <ul>
-                                   <table>  
-                                   <colgroup> <col width=5%> <col width=95%> </colgroup>
-	                                  <tr><td> <b>executeBeforeProc</b>                      </td><td>: execution of FHEM command (or Perl-routine) before reducelog </td></tr>
-                                      <tr><td> <b>executeAfterProc</b>                       </td><td>: execution of FHEM command (or Perl-routine) after reducelog </td></tr>
-                                      <tr><td> <b>device</b>                                 </td><td>: include or exclude &lt;device&gt; for selection </td></tr>
-                                      <tr><td> <b>reading</b>                                </td><td>: include or exclude &lt;reading&gt; for selection </td></tr>
-                                      <tr><td> <b>timeOlderThan</b>                          </td><td>: records <b>older</b> than this attribute will be reduced </td></tr>
-                                      <tr><td> <b>timestamp_end</b>                          </td><td>: records <b>older</b> than this attribute will be reduced </td></tr>
-                                      <tr><td> <b>timeDiffToNow</b>                          </td><td>: records <b>newer</b> than this attribute will be reduced </td></tr>
-                                      <tr><td> <b>timestamp_begin</b>                        </td><td>: records <b>newer</b> than this attribute will be reduced </td></tr>
-                                      <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
-                                   </table>
-	                               </ul>
-                                   <br>
-                                 
-                                 For compatibility reasons the reducelog command can optionally be completed with supplements "EXCLUDE" 
-                                 respectively "INCLUDE" to exclude and/or include device/reading combinations from reducelog: <br><br>
-                                 <ul>
-                                 "reduceLog [average[=day]] [EXCLUDE=device1:reading1,device2:reading2,...] [INCLUDE=device:reading]" <br><br> 
-                                 </ul>
-                                 This declaration is evaluated as Regex and overwrites the attributes "device" and "reading",
-                                 which won't be considered in this case. <br><br>
-          
-                                 <ul>
+	                             <ul>
+                                 <table>  
+                                 <colgroup> <col width=5%> <col width=95%> </colgroup>
+	                                <tr><td> <b>executeBeforeProc</b>                      </td><td>: execution of FHEM command (or Perl-routine) before reducelog </td></tr>
+                                    <tr><td> <b>executeAfterProc</b>                       </td><td>: execution of FHEM command (or Perl-routine) after reducelog </td></tr>
+                                    <tr><td> <b>device</b>                                 </td><td>: include or exclude &lt;device&gt; for selection </td></tr>
+                                    <tr><td> <b>reading</b>                                </td><td>: include or exclude &lt;reading&gt; for selection </td></tr>
+                                    <tr><td> <b>timeOlderThan</b>                          </td><td>: records <b>older</b> than this attribute will be reduced </td></tr>
+                                    <tr><td> <b>timestamp_end</b>                          </td><td>: records <b>older</b> than this attribute will be reduced </td></tr>
+                                    <tr><td> <b>timeDiffToNow</b>                          </td><td>: records <b>newer</b> than this attribute will be reduced </td></tr>
+                                    <tr><td> <b>timestamp_begin</b>                        </td><td>: records <b>newer</b> than this attribute will be reduced </td></tr>
+                                    <tr><td> <b>valueFilter</b>                            </td><td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
+                                 </table>
+	                             </ul>
+                                 <br>
+								 
                                  <b>Examples: </b><br><br>
-                                 
+                                 <ul>
                                  attr &lt;name&gt; timeOlderThan = d:200  <br>
                                  set &lt;name&gt; reduceLog <br>
-                                 # Records older than 200 days are reduced to the first entry per hour of each device and reading.
-                                 <br> 
+                                 # Records older than 200 days are written to the first entry per hour per Device & Reading.  <br> 
                                  <br>
                                  
                                  attr &lt;name&gt; timeDiffToNow = d:200  <br>
                                  set &lt;name&gt; reduceLog average=day <br>
-                                 # Records newer than 200 days are reduced to a single average a day of each device and reading.
-                                 <br> 
+                                 # Records newer than 200 days are limited to one entry per day per Device & Reading.  <br> 
                                  <br>
                                  
                                  attr &lt;name&gt; timeDiffToNow = d:30  <br>
                                  attr &lt;name&gt; device = TYPE=SONOSPLAYER EXCLUDE=Sonos_Kueche  <br>
                                  attr &lt;name&gt; reading = room% EXCLUDE=roomNameAlias  <br>
                                  set &lt;name&gt; reduceLog <br>
-                                 # Records newer than 30 days which are contain devices from type SONOSPLAYER 
-                                 (except device "Sonos_Kueche"), the readings beginning with "room" (except "roomNameAlias"),                       
-                                 are reduced to the first entry per hour of each device and reading.  <br> 
+                                 # Records newer than 30 days that are devices of type SONOSPLAYER 
+                                 (except Device "Sonos_Kitchen") and the readings start with "room" (except "roomNameAlias")                       
+                                 are reduced to the first entry per hour per Device & Reading.  <br> 
                                  <br>
                                  
                                  attr &lt;name&gt; timeDiffToNow = d:10 <br>
                                  attr &lt;name&gt; timeOlderThan = d:5  <br>
                                  attr &lt;name&gt; device = Luftdaten_remote  <br>
                                  set &lt;name&gt; reduceLog average <br>
-                                 # Records older than 5 and newer than 10 days and contain DEVICE "Luftdaten_remote" are 
-                                 revised. Numerical values are reduced to the first entry per hour of each device and reading 
-                                 <br>                                  
+                                 # Records older than 5 and newer than 10 days and containing DEVICE "Luftdaten_remote 
+                                 are adjusted. Numerical values of an hour are reduced to an average value <br>                                  
                                  <br>
 								 </ul>
-                                 
-								 <b>Note:</b> <br>
-                                 Even though the function itself is non-blocking, you have to set the attached DbLog  device into 
-                                 the asynchronous mode (attr asyncMode = 1) to avoid a blocking situation of FHEM !. <br>
-                                 It is strongly recommended to check if the default INDEX 'Search_Idx' exists on the table 
-                                 'history'! <br><br>
-                                 </li> <br>
+								 <br>        
 
+								 <b>Method with option specification</b> <br><br>
+								 
+								 Records older than <b>&lt;no&gt;</b> days and (optionally) newer than 
+								 <b>&lt;nn&gt;</b> days are considered.
+                                 Specifying <b>average</b> not only cleans up the database, but also 
+                                 all numerical values of an hour are reduced to a single mean value.
+                                 With the option <b>average=day</b> all numerical values of a day are reduced to a single 
+                                 Average value reduced (implies 'average'). <br><br>
+
+                                 The additions "EXCLUDE" and "INCLUDE" can be added to exclude device/reading combinations of reduceLog 
+								 or to include them. This specification is evaluated as regex and overwrites the setting of the attributes "device". 
+								 and "reading", which are not considered in this case. <br><br>					
+                                        
+								 <b>Note:</b> <br>
+                                 Although the function itself is designed non-blocking, the assigned DbLog device should
+                                 operated in asynchronous mode to avoid blocking of FHEMWEB (table lock). <br>
+                                 It is also strongly recommended to use the standard INDEX 'Search_Idx' in the table 'history'. 
+                                 to put on ! <br>
+		                         The processing of this command may take an extremely long time (without INDEX). <br><br>
+                                 </li> <br> 
+								 
     <li><b> repairSQLite </b>  - repairs a corrupted SQLite database. <br>
                                  A corruption is usally existent when the error message "database disk image is malformed"
                                  appears in reading "state" of the connected DbLog-device.
@@ -12009,15 +12944,15 @@ return;
 								 </li><br>
 
 	<li><b> sqlCmd </b>        - Execute an arbitrary user specific command. <br>
-                                 If the command contains a operation to delete data, the <a href="#DbRepattr">attribute</a> 
-								 "allowDeletion" has to be set for security reason. <br>
+                                 If the command contains a operation to delete data, the attribute <a href="#allowDeletion">'allowDeletion'</a> 
+								 has to be set for security reason. <br>
                                  The statement doesn't consider limitations by attributes "device", "reading", "time.*" 
                                  respectively "aggregation". <br>
                                  This command also accept the setting of MySQL session variables like "SET @open:=NULL, 
                                  @closed:=NULL;" or the usage of SQLite PRAGMA before execution the SQL-Statement.
                                  If the session variable or PRAGMA has to be set every time before executing a SQL statement, the 
-                                 <a href="#DbRepattr">attribute</a> "sqlCmdVars" can be set. <br>                                 
-								 If the <a href="#DbRepattr">attribute</a> "timestamp_begin" respectively "timestamp_end" 
+                                 attribute <a href="#sqlCmdVars">'sqlCmdVars'</a> can be set. <br>                                 
+								 If the attribute <a href="#timestamp_begin">'timestamp_begin'</a> respectively 'timestamp_end' 
 								 is assumed in the statement, it is possible to use placeholder "<b>§timestamp_begin§</b>" respectively
 								 "<b>§timestamp_end§</b>" on suitable place. <br><br>
 								 
@@ -12082,6 +13017,7 @@ return;
                                       <tr><td> <b>sqlResultFieldSep</b>   </td><td>: choice of a useful field separator for result </td></tr>
                                       <tr><td> <b>sqlCmdHistoryLength</b> </td><td>: activates command history and length </td></tr>
                                       <tr><td> <b>sqlCmdVars</b>          </td><td>: set SQL session variable or PRAGMA before execute the SQL statement</td></tr>
+                                      <tr><td> <b>useAdminCredentials</b> </td><td>: use privileged user for the operation </td></tr>
                                    </table>
 	                               </ul>
 	                               <br>
@@ -12098,9 +13034,8 @@ return;
 
     <li><b> sqlCmdHistory </b>   - If history is activated by <a href="#DbRepattr">attribute</a> "sqlCmdHistoryLength", an already
                                    successfully executed sqlCmd-command can be repeated from a drop-down list. <br>
-                                   By execution of the last list entry, "__purge_historylist__", the list itself can be deleted. <br>
-								   If the statement contains "," this character is displayed as "&lt;c&gt;" in the history 
-                                   list due to technical restrictions. <br><br>
+                                   By execution of the last list entry, "__purge_historylist__", the list itself can be 
+                                   deleted. <br><br>								   
                              
                                    For a better overview the relevant attributes for this command are listed in a table: <br><br>
 
@@ -12120,10 +13055,28 @@ return;
 
     <li><b> sqlSpecial </b>    - This function provides a drop-down list with a selection of prepared reportings. <br>
 								 The statements result is depicted in reading "SqlResult".
-								 The result can be formatted by <a href="#DbRepattr">attribute</a> "sqlResultFormat", 
-                                 a well as the used field separator by <a href="#DbRepattr">attribute</a> "sqlResultFieldSep". 
+								 The result can be formatted by attribute <a href="#sqlResultFormat">sqlResultFormat</a> 
+                                 a well as the used field separator by attribute <a href="#sqlResultFieldSep">sqlResultFieldSep</a>. 
                                  <br><br>
-
+                                   
+                 	             The following predefined reportings are selectable: <br><br>
+	                               <ul>
+                                   <table>  
+                                   <colgroup> <col width=5%> <col width=95%> </colgroup>
+                                      <tr><td> <b>50mostFreqLogsLast2days </b> </td><td>:       reports the 50 most occuring log entries of the last 2 days </td></tr>
+                                      <tr><td> <b>allDevCount </b>             </td><td>:       all devices occuring in database and their quantity </td></tr>
+                                      <tr><td> <b>allDevReadCount </b>         </td><td>:       all device/reading combinations occuring in database and their quantity </td></tr>
+									  <tr><td> <b>recentReadingsOfDevice </b>  </td><td>:       determines the newest records of a device available in the database. The
+									                                                            device must be defined in attribute <a href="#device">device</a>. 
+																						        Only <b>one</b> device to be evaluated can be specified.. </td></tr>                                  
+									  <tr><td> <b>readingsDifferenceByTimeDelta </b> </td><td>: determines the value difference of successive data records of a reading. The
+									                                                            device and reading must be defined in the attribute <a href="#device">device</a> or <a href="#reading">reading</a>. 
+																						        Only <b>one</b> device to be evaluated and only <b>one</b> reading to be evaluated can be specified. 
+                                                                                                The time limits of the evaluation are defined by the time.*-attributes. </td></tr>
+								   </table>
+	                               </ul>
+								   <br>
+								   
                  	             The relevant attributes for this function are: <br><br>
 	                               <ul>
                                    <table>  
@@ -12134,36 +13087,29 @@ return;
                                       <tr><td> <b>sqlResultFieldSep</b>  </td><td>: determines the used field separator in statement result </td></tr>
                                    </table>
 	                               </ul>
-                                   <br>
-                                   
-                 	             The following predefined reportings are selectable: <br><br>
-	                               <ul>
-                                   <table>  
-                                   <colgroup> <col width=5%> <col width=95%> </colgroup>
-                                      <tr><td> <b>50mostFreqLogsLast2days </b> </td><td>: reports the 50 most occuring log entries of the last 2 days </td></tr>
-                                      <tr><td> <b>allDevCount </b>             </td><td>: all devices occuring in database and their quantity </td></tr>
-                                      <tr><td> <b>allDevReadCount </b>         </td><td>: all device/reading combinations occuring in database and their quantity </td></tr>
-                                   </table>
-	                               </ul>
 	                                
                                  </li><br><br>                                   
 
-	<li><b> sumValue [display | writeToDB]</b>     
-                                 - calculates the summary of database column "VALUE" between period given by 
-	                             <a href="#DbRepattr">attributes</a> "timestamp_begin", "timestamp_end" or 
-								 "timeDiffToNow / timeOlderThan". The reading to evaluate must be defined using attribute
-								 "reading". Using this function is mostly reasonable if value-differences of readings 
-								 are written to the database. <br>
-
-                                 Is no or the option "display" specified, the results are only displayed. Using 
-                                 option "writeToDB" the calculation results are stored in the database with a new reading
-                                 name. <br>
-                                 The new readingname is built of a prefix and the original reading name,
-                                 in which the original reading name can be replaced by the value of attribute "readingNameMap".	 
-                                 The prefix is made up of the creation function and the aggregation. <br>
-                                 The timestamp of the new stored readings is deviated from aggregation period, 
-                                 unless no unique point of time of the result can be determined. 
-                                 The field "EVENT" will be filled with "calculated".<br><br>
+    <li><b> sumValue [display | writeToDB | writeToDBSingle] </b>      
+                                 - Calculates the total values of the database field "VALUE" in the time limits 
+	                             of the possible time.*-attributes. <br><br>
+                                 
+                                 The reading to be evaluated must be specified in the attribute <a href="#reading">reading</a>. 
+                                 This function is useful if continuous value differences of a reading are written 
+                                 into the database.  <br><br>
+                                 
+                                 If none or the option <b>display</b> is specified, the results are only displayed. With 
+                                 the options <b>writeToDB</b> or <b>writeToDBSingle</b> the calculation results are written
+                                 with a new reading name into the database. <br>
+                                 <b>writeToDB</b> writes one value each at the beginning and end of an evaluation period.
+                                 <b>writeToDBSingle</b> writes only one value at the end of an evaluation period. <br><br>
+                                 
+                                 The new reading name is formed from a prefix and the original reading name, 
+								 where the original reading name can be replaced by the attribute "readingNameMap". 
+                                 The prefix consists of the educational function and the aggregation. <br>
+                                 The timestamp of the new reading in the database is determined by the set aggregation period 
+                                 if no clear time of the result can be determined. 
+                                 The field "EVENT" is filled with "calculated".  <br><br>
                                  
                                  <ul>
                                  <b>Example of building a new reading name from the original reading "totalpac":</b> <br>
@@ -12184,7 +13130,7 @@ return;
                                     <tr><td> <b>reading</b>                                </td><td>: include or exclude &lt;reading&gt; from selection </td></tr> 
                                     <tr><td> <b>readingNameMap</b>                         </td><td>: rename the resulted readings </td></tr>									
 								    <tr><td> <b>time.*</b>                                 </td><td>: a number of attributes to limit selection by time </td></tr>
-                                    <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
+                                    <tr><td> <b>valueFilter</b>                            </td><td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
 								 </table>
 	                             </ul>                                   
                                  
@@ -12214,7 +13160,7 @@ return;
                                     <tr><td> <b>executeAfterProc</b>                       </td><td>: execution of FHEM command (or Perl-routine) after operation </td></tr> 
                                     <tr><td> <b>reading</b>                                </td><td>: include or exclude &lt;reading&gt; for transmission </td></tr>                                      
                                     <tr><td> <b>time.*</b>                                 </td><td>: a number of attributes to limit selection by time  </td></tr>
-                                    <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
+                                    <tr><td> <b>valueFilter</b>                            </td><td>: an additional REGEXP to control the record selection. The REGEXP is applied to the database field 'VALUE'. </td></tr>
 
                                  </table>
 	                             </ul>
@@ -12357,7 +13303,7 @@ return $ret;
                                 </li>     
                                 <br><br>                                     
 
-    <li><b> procinfo </b> - reports the existing database processes in a summary table (only MySQL). <br>
+    <li><b> procinfo </b> - Reports the existing database processes in a summary table (only MySQL). <br>
 	                        Typically only the own processes of the connection user (set in DbLog configuration file) will be
 							reported. If all precesses have to be reported, the global "PROCESS" right has to be granted to the 
 							user. <br>
@@ -12367,9 +13313,14 @@ return $ret;
 							Further informations can be found
                             <a href=https://mariadb.com/kb/en/mariadb/show-processlist/>there</a>. <br>
                             </li>     
-                            <br><br>								 
+                            <br><br>	
 
-    <li><b> svrinfo </b> -  common database server informations, e.g. DBMS-version, server address and port and so on. The quantity of elements to get depends
+    <li><b> storedCredentials </b> - Reports the users / passwords stored for database access by the device. <br>
+                                   (only valid if database type is MYSQL)
+                                   </li>     
+                                   <br><br>                            
+
+    <li><b> svrinfo </b> -  Common database server informations, e.g. DBMS-version, server address and port and so on. The quantity of elements to get depends
                             on the database type. Using the <a href="#DbRepattr">attribute</a> "showSvrInfo" the quantity of results can be limited to show only 
                             the desired values. Further detailed informations of items meaning are explained                             
                             <a href=https://msdn.microsoft.com/en-us/library/ms711681(v=vs.85).aspx>there</a>. <br>
@@ -12383,7 +13334,7 @@ return $ret;
                                  <br><br>
                                  </ul>                                                      
                                  
-    <li><b> tableinfo </b> -  access detailed informations about tables in MySQL database which is connected by the DbRep-device. 
+    <li><b> tableinfo </b> -  Access detailed informations about tables in MySQL database which is connected by the DbRep-device. 
 	                          All available tables in the connected database will be selected by default. 
                               Using the<a href="#DbRepattr">attribute</a> "showTableInfo" the results can be limited to tables you want to show. 
 							  Further detailed informations of items meaning are explained <a href=http://dev.mysql.com/doc/refman/5.7/en/show-table-status.html>there</a>.  <br>
@@ -12395,7 +13346,7 @@ return $ret;
                                  # Only informations related to tables "current" and "history" are going to be created
                                  </li> 
                                  <br><br>
-                                 </ul>                                                                                   
+                                 </ul>                                                                            
   
     <li><b> versionNotes [hints | rel | &lt;key&gt;] </b> - 
                               Shows realease informations and/or hints about the module. It contains only main release 
@@ -12446,11 +13397,13 @@ return $ret;
 	                               <ul>
                                    <table>  
                                    <colgroup> <col width=20%> <col width=80%> </colgroup>
-                                      <tr><td><b>avgArithmeticMean                          :</b> </td><td>the arithmetic average is calculated (default) </td></tr>
-                                      <tr><td style="vertical-align:top"><b>avgDailyMeanGWS :</b> <td>calculates the daily medium temperature according the 
+                                      <tr><td><b>avgArithmeticMean :</b> </td><td>the arithmetic average is calculated (default) </td></tr>
+                                      <tr><td> </td><td> </td></tr>
+									  <tr><td><b>avgDailyMeanGWS   :</b> </td><td>calculates the daily medium temperature according the 
                                                                                                   specifications of german weather service (pls. see "get &lt;name&gt; versionNotes 2"). <br>
                                                                                                   This variant uses aggregation "day" automatically. </td></tr>
-                                      <tr><td><b>avgTimeWeightMean                          :</b> </td><td>calculates a time weighted average mean value is calculated </td></tr>
+                                      <tr><td> </td><td> </td></tr>
+									  <tr><td><b>avgTimeWeightMean                          :</b> </td><td>calculates a time weighted average mean value is calculated </td></tr>
 								   </table>
 	                               </ul>								   
                                 </li><br>
@@ -12462,33 +13415,24 @@ return $ret;
   
   <a name="device"></a>
   <li><b>device </b>          - Selection of particular or several devices. <br>
-                                You can specify a list of devices separated by "," or use device specifications (devspec). <br> 
-								Inside of lists or device specifications a SQL wildcard (%) will be evaluated as a normal 
-                                ASCII-character. 
-								The device names are derived from device specification and the active devices in FHEM before 
-                                SQL selection will be carried out. <br>
+                                You can specify a list of devices separated by "," or use device specifications (devspec). <br>
+								In that case the device names are derived from the device specification and the existing 
+                                devices in FHEM before carry out the SQL selection. <br>
                                 If the the device, list or device specification is prepended by "EXCLUDE=", 
                                 the devices are excluded from database selection.                                
                                 <br><br>
   
                                 <ul>
 							    <b>Examples:</b> <br>
-								<code>attr &lt;name&gt; device TYPE=DbRep</code> <br>
-								# select datasets of active present devices with Type "DbRep" <br> 
-								<code>attr &lt;name&gt; device MySTP_5000</code> <br>
-								# select datasets of device "MySTP_5000" <br> 
-								<code>attr &lt;name&gt; device SMA.*</code> <br>
-								# select datasets of devices starting with "SMA" <br> 
-								<code>attr &lt;name&gt; device SMA_Energymeter,MySTP_5000</code> <br>
-								# select datasets of devices "SMA_Energymeter" and "MySTP_5000" <br>
-								<code>attr &lt;name&gt; device %5000</code> <br>
-								# select datasets of devices ending with "5000" <br> 
-                                <code>attr &lt;name&gt; device TYPE=SSCam EXCLUDE=SDS1_SVS </code> <br> 
-                                # select datasets of devices TYPE SSCam but exclude device "SDS1_SVS" <br>                                 
+								<code>attr &lt;name&gt; device TYPE=DbRep </code> <br>
+								<code>attr &lt;name&gt; device MySTP_5000 </code> <br> 
+								<code>attr &lt;name&gt; device SMA.*,MySTP.* </code> <br> 
+								<code>attr &lt;name&gt; device SMA_Energymeter,MySTP_5000 </code> <br>
+								<code>attr &lt;name&gt; device %5000 </code> <br>
+                                <code>attr &lt;name&gt; device TYPE=SSCam EXCLUDE=SDS1_SVS </code> <br>	
+                                <code>attr &lt;name&gt; device TYPE=SSCam,TYPE=ESPEasy EXCLUDE=SDS1_SVS </code> <br>	
                                 <code>attr &lt;name&gt; device EXCLUDE=SDS1_SVS </code> <br>
-                                # select all devices except device "SDS1_SVS" <br> 
-                                <code>attr &lt;name&gt; device EXCLUDE=TYPE=SSCam </code> <br>
-                                # select all devices except devices of TYPE "SSCam" <br>								
+                                <code>attr &lt;name&gt; device EXCLUDE=TYPE=SSCam </code> <br>								
 								</ul>
                                 <br>
                                 
@@ -12679,6 +13623,21 @@ sub bdump {
 														  </ul>
 														  
 														</li> <br><br>
+                                                        
+  <a name="fetchValueFn"></a>
+  <li><b>fetchValueFn </b>      - When fetching the database content, you are able to manipulate the value fetched from the 
+                                VALUE database field before create the appropriate reading. You have to insert a Perl 
+                                function which is enclosed in {} .<br>
+                                The value of the database field VALUE is provided in variable $VALUE. <br><br>
+
+                                <ul>
+							    <b>Example:</b> <br>
+								attr &lt;name&gt; fetchValueFn { $VALUE =~ s/^.*Used:\s(.*)\sMB,.*/$1." MB"/e } <br>
+								
+								# From a long line a specific pattern is extracted and will be displayed als VALUE instead 
+                                the whole line 
+                                </ul>
+                                </li> <br><br>
  
   <a name="ftpUse"></a> 
   <li><b>ftpUse </b>          - FTP Transfer after dump will be switched on (without SSL encoding). The created 
@@ -12739,24 +13698,24 @@ sub bdump {
   <a name="reading"></a>
   <li><b>reading </b>         - Selection of particular or several readings.
                                 More than one reading can be specified by a comma separated list. <br>
-								If SQL wildcard (%) is set in a list, it will be evaluated as a normal ASCII-character. <br>
-                                If the reading or the reading-list is prepended by "EXCLUDE=", those readings are excluded 
-                                from database selection.
+								SQL wildcard (%) can be used. <br>
+                                If the reading or the reading list is prepended by "EXCLUDE=", those readings are not 
+                                included.
                                 <br><br>  
 								
                                 <ul>
 							    <b>Examples:</b> <br>
-								<code>attr &lt;name&gt; reading etotal</code> <br> 
+								<code>attr &lt;name&gt; reading etotal</code> <br>
 								<code>attr &lt;name&gt; reading et%</code> <br>
 								<code>attr &lt;name&gt; reading etotal,etoday</code> <br>
-                                <code>attr &lt;name&gt; reading etotal,etoday EXCLUDE=state  </code> <br>
-                                <code>attr &lt;name&gt; reading etotal,etoday EXCLUDE=Einspeisung%  </code> <br>
+                                <code>attr &lt;name&gt; reading eto%,Einspeisung EXCLUDE=etoday  </code> <br>
+                                <code>attr &lt;name&gt; reading etotal,etoday,Ein% EXCLUDE=%Wirkleistung  </code> <br>
 								</ul>
 								<br><br>
                                 </li>
 
   <a name="readingNameMap"></a>
-  <li><b>readingNameMap </b>  - the name of the analyzed reading can be overwritten for output  </li> <br>
+  <li><b>readingNameMap </b>  - A part of the created reading name will be replaced by the specified string  </li> <br>
 
   <a name="role"></a>
   <li><b>role </b>            - the role of the DbRep-device. Standard role is "Client". <br>
@@ -12771,19 +13730,29 @@ sub bdump {
                                        new operation starts  </li> <br>
 
   <a name="seqDoubletsVariance"></a>                                       
-  <li><b>seqDoubletsVariance </b> - accepted variance (+/-) for the command "set &lt;name&gt; delSeqDoublets". <br>
-                                    The value of this attribute describes the variance up to it consecutive numeric values (VALUE) of
-                                    datasets are handled as identical and should be deleted. "seqDoubletsVariance" is an absolut numerical value, 
-                                    which is used as a positive as well as a negative variance.
+  <li><b>seqDoubletsVariance  &lt;positive variance [negative variance] [EDGE=negative|positive]&gt; </b> <br> 
+                                    Accepted variance for the command "set &lt;name&gt; delSeqDoublets". <br>
+                                    The value of this attribute describes the variance up to consecutive numeric values (VALUE) of
+                                    datasets are handled as identical. If only one numeric value is declared, it is used as 
+                                    postive as well as negative variance and both form the "deletion corridor".
+                                    Optional a second numeric value for a negative variance, separated by blank,can be 
+                                    declared.
+                                    Always absolute, i.e. positive numeric values, have to be declared. <br>
+                                    If the supplement "EDGE=negative" is declared, values at a negative edge (e.g. when 
+                                    value is changed from  4.0 -&gt; 1.0) are not deleted although they are in the "deletion corridor".
+                                    Equivalent is valid with "EDGE=positive" for the positive edge (e.g. the change 
+                                    from 1.2 -&gt; 2.8).                                 
                                     <br><br>
 
                                     <ul>
 							        <b>Examples:</b> <br>
-								    <code>attr &lt;name&gt; seqDoubletsVariance 0.0014 </code> <br>
-								    <code>attr &lt;name&gt; seqDoubletsVariance 1.45   </code> <br>
+								    <code>attr &lt;name&gt; seqDoubletsVariance 0.0014  </code> <br>
+								    <code>attr &lt;name&gt; seqDoubletsVariance 1.45    </code> <br>
+                                    <code>attr &lt;name&gt; seqDoubletsVariance 3.0 2.0 </code> <br>
+                                    <code>attr &lt;name&gt; seqDoubletsVariance 1.5 EDGE=negative </code> <br>
 								    </ul>
 								    <br><br> 
-                                    </li>
+                                    </li>  
 
   <a name="showproctime"></a>
   <li><b>showproctime </b>    - if set, the reading "sql_processing_time" shows the required execution time (in seconds) 
@@ -13003,8 +13972,10 @@ sub bdump {
 
   <a name="timeDiffToNow"></a>  
   <li><b>timeDiffToNow </b>   - the <b>begin time </b> of data selection will be set to the timestamp <b>"&lt;current time&gt; - 
-                                &lt;timeDiffToNow&gt;"</b> dynamically (e.g. if set to 86400, the last 24 hours are considered by data 
-								selection). The time period will be calculated dynamically at execution time.     
+                                &lt;timeDiffToNow&gt;"</b> dynamically. The time period will be calculated dynamically at 
+                                execution time. Optional can with the additional entry "FullDay" the selection start time 
+                                and the selection end time be expanded to the begin / end of the involved days
+                                (take only effect if adjusted time difference is >= 1 day).   
                                 <br><br> 
 
                                 <ul>
@@ -13021,6 +13992,8 @@ sub bdump {
                                 # the start time is set to "current time - 1 year and 2,5 hours" <br>
 								<code>attr &lt;name&gt; timeDiffToNow y:1.5</code> <br>
                                 # the start time is set to "current time - 1.5 years" <br>
+                                <code>attr &lt;name&gt; timeDiffToNow d:8 FullDay </code> <br>
+                                # the start time is set to "current time - 8 days", the selection time period is expanded to the begin / end of the involved days <br>
 								</ul>
 								<br>
                                 
@@ -13032,9 +14005,10 @@ sub bdump {
   <a name="timeOlderThan"></a>
   <li><b>timeOlderThan </b>   - the <b>end time</b> of data selection will be set to the timestamp <b>"&lt;aktuelle Zeit&gt; - 
                                 &lt;timeOlderThan&gt;"</b> dynamically. Always the datasets up to timestamp 
-								"&lt;current time&gt; - &lt;timeOlderThan&gt;" will be considered (e.g. if set to 
-								86400, all datasets older than one day are considered). The time period will be calculated dynamically at 
-								execution time. 
+								"&lt;current time&gt; - &lt;timeOlderThan&gt;" will be considered. The time period will be calculated dynamically at 
+								execution time. Optional can with the additional entry "FullDay" the selection start time 
+                                and the selection end time be expanded to the begin / end of the involved days
+                                (take only effect if adjusted time difference is >= 1 day).
                                 <br><br> 
                                 
                                 <ul>
@@ -13051,6 +14025,9 @@ sub bdump {
                                 # the selection end time is set to "current time - 1 year and 2,5 hours" <br>
 								<code>attr &lt;name&gt; timeOlderThan y:1.5</code> <br>
                                 # the selection end time is set to "current time - 1.5 years" <br>
+                                <code>attr &lt;name&gt; timeOlderThan d:8 FullDay </code> <br>
+                                # the end time is set to "current time - 8 days", the selection time period is expanded to the begin / end of the involved days <br>
+
 								</ul>
 								<br>
                                 
@@ -13062,10 +14039,17 @@ sub bdump {
   <a name="timeout"></a>
   <li><b>timeout </b>         - set the timeout-value for Blocking-Call Routines in background in seconds (default 86400)  </li> <br>
 
+  <a name="useAdminCredentials"></a> 								
+  <li><b>useAdminCredentials </b>         
+                                - If set, a before with "set &lt;aame&gt; adminCredentials" saved privileged user is used
+                                  for particular database operations. <br>
+                                  (only valid if database type is MYSQL and DbRep-type "Client")
+                                  </li> <br>
+                                  
   <a name="userExitFn"></a>
   <li><b>userExitFn   </b>   - provides an interface to execute user specific program code. <br>
-                               To activate the interfaace at first you should implement the subroutine which will be 
-                               called by the interface in your 99_myUtls.pm as shown in by the example:     <br>
+                               To activate the interfaace, at first you should implement the subroutine which will be 
+                               called by the interface in your 99_myUtils.pm as shown by the example:     <br>
 
 		<pre>
         sub UserFunction {
@@ -13090,10 +14074,11 @@ sub bdump {
 							   </ul>
 							   <br>
 							   
-							   The interface works generally without and independent from Events.
-							   If the attribute is set, after every reading generation the Regex will be evaluated.
-							   If the evaluation was "true", set subroutine will be called. 
-							   For further processing following parameters will be forwarded to the function: <br><br>
+							   The interface works generally <b>without and independent</b> from events.
+							   If the attribute is set, <b>after</b> every reading creation in the device the Regex will be 
+                               evaluated.
+							   If the evaluation is <b>true</b>, the subroutine will be called. 
+							   For further processing the following parameters are forwarded to the function: <br><br>
                                
 							   <ul>
                                <li>$name - the name of the DbRep-Device </li>
@@ -13286,9 +14271,18 @@ sub bdump {
   <br><br>
   
   <b>Beispiele: </b><br>
-  $ret = DbReadingsVal("Rep.LogDB1","MyWetter:temperature","2018-01-13_08:00:00",""); <br>
-  attr &lt;name&gt; userReadings oldtemp {DbReadingsVal("Rep.LogDB1","MyWetter:temperature","2018-04-13_08:00:00","")}
-  <br><br>
+  <pre>
+  $ret = DbReadingsVal("Rep.LogDB1","MyWetter:temperature","2018-01-13_08:00:00","");
+  attr &lt;name&gt; userReadings oldtemp {DbReadingsVal("Rep.LogDB1","MyWetter:temperature","2018-04-13_08:00:00","")} 
+  attr &lt;name&gt; userReadings todayPowerIn 
+    {  
+       my ($sec,$min,$hour,$mday,$month,$year,$wday,$yday,$isdst) = localtime(gettimeofday());
+       $month++; 
+       $year+=1900;
+       my $today = sprintf('%04d-%02d-%02d', $year,$month,$mday);
+       DbReadingsVal("Rep.LogDB1","SMA_Energymeter:Bezug_Wirkleistung_Zaehler",$today."_00:00:00",0)
+    } 
+  </pre>
   
   Die Befehlssyntax als FHEM Kommando ist: <br><br>
     
@@ -13378,15 +14372,30 @@ sub bdump {
  <br><br>
  
  <ul><ul>
-    <li><b> averageValue [display | writeToDB]</b> 
-                                 - berechnet einen Durchschnittswert des Datenbankfelds "VALUE" in den 
-                                 gegebenen Zeitgrenzen ( siehe <a href="#DbRepattr">Attribute</a>). 
-                                 Es muss das auszuwertende Reading über das <a href="#DbRepattr">Attribut</a> "reading" 
-								 angegeben sein. <br>
-                                 Mit dem Attribut "averageCalcForm" wird die Berechnungsvariante zur Mittelwertermittlung definiert.                               
-                                 Ist keine oder die Option "display" angegeben, werden die Ergebnisse nur angezeigt. Mit 
-                                 der Option "writeToDB" werden die Berechnungsergebnisse mit einem neuen Readingnamen
-                                 in der Datenbank gespeichert. <br>
+ 
+    <li><b> adminCredentials &lt;User&gt; &lt;Passwort&gt; </b>          
+	                           - Speichert einen User / Passwort für den privilegierten bzw. administrativen 
+                               Datenbankzugriff. Er wird bei Datenbankoperationen benötigt, die mit einem privilegierten User 
+                               ausgeführt werden müssen. Siehe auch Attribut <a href="#useAdminCredentials">'useAdminCredentials'</a>. <br>
+                               (nur gültig bei Datenbanktyp MYSQL und DbRep-Typ "Client")
+                               
+                               </li> <br>
+                               
+    <li><b> averageValue [display | writeToDB | writeToDBSingle]</b> 
+                                 - berechnet einen Durchschnittswert des Datenbankfelds "VALUE" in den Zeitgrenzen 
+	                             der möglichen time.*-Attribute. <br><br>
+                                 
+                                 Es muss das auszuwertende Reading im Attribut <a href="#reading">reading</a> 
+								 angegeben sein.                                  
+                                 Mit dem Attribut <a href="#averageCalcForm">averageCalcForm</a> wird die Berechnungsvariante zur 
+                                 Mittelwertermittlung definiert. <br><br>
+                                 
+                                 Ist keine oder die Option <b>display</b> angegeben, werden die Ergebnisse nur angezeigt. Mit 
+                                 den Optionen <b>writeToDB</b> bzw. <b>writeToDBSingle</b> werden die Berechnungsergebnisse 
+                                 mit einem neuen Readingnamen in der Datenbank gespeichert. <br>
+                                 <b>writeToDB</b> schreibt jeweils einen Wert am Anfang und am Ende einer Auswertungsperiode.
+                                 <b>writeToDBSingle</b> schreibt nur einen Wert am Ende einer Auswertungsperiode. <br><br>
+                                 
                                  Der neue Readingname wird aus einem Präfix und dem originalen Readingnamen gebildet, 
 								 wobei der originale Readingname durch das Attribut "readingNameMap" ersetzt werden kann.
                                  Der Präfix setzt sich aus der Bildungsfunktion und der Aggregation zusammen. <br>
@@ -13414,7 +14423,7 @@ sub bdump {
                                       <tr><td> <b>reading</b>                                </td><td>: einschließen oder ausschließen von Datensätzen die &lt;reading&gt; enthalten </td></tr>
                                       <tr><td> <b>readingNameMap</b>                         </td><td>: die entstehenden Ergebnisreadings werden partiell umbenannt </td></tr>									
 								      <tr><td> <b>time.*</b>                                 </td><td>: eine Reihe von Attributen zur Zeitabgrenzung </td></tr>
-                                      <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
+                                      <tr><td> <b>valueFilter</b>                            </td><td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
 									  </table>
 	                               </ul>
 	                               <br>
@@ -13440,10 +14449,12 @@ sub bdump {
                                  
                                 <table>  
                                 <colgroup> <col width=15%> <col width=85%> </colgroup>
-                                   <tr><td style="vertical-align:top"><b>&lt;old string&gt; :</b> <td><li>ein einfacher String mit/ohne Leerzeichen, z.B. "OL 12" </li>
-									                                                                  <li>ein String mit Verwendung von SQL-Wildcard, z.B. "%OL%" </li> </td></tr>
-                                   <tr><td style="vertical-align:top"><b>&lt;new string&gt; :</b> <td><li>ein einfacher String mit/ohne Leerzeichen, z.B. "12 kWh" </li>
-                                                                                                      <li>Perl Code eingeschlossen in "{}" inkl. Quotes, z.B. "{($VALUE,$UNIT) = split(" ",$VALUE)}". 
+                                   <tr><td><b>&lt;alter String&gt; :</b> </td><td><li>ein einfacher String mit/ohne Leerzeichen, z.B. "OL 12" </li>
+									                                                                    <li>ein String mit Verwendung von SQL-Wildcard, z.B. "%OL%" </li> </td></tr>
+                                   <tr><td> </td><td> </td></tr>
+								   <tr><td> </td><td> </td></tr>
+								   <tr><td><b>&lt;neuer String&gt; :</b> </td><td><li>ein einfacher String mit/ohne Leerzeichen, z.B. "12 kWh" </li>
+                                                                                                        <li>Perl Code eingeschlossen in "{}" inkl. Quotes, z.B. "{($VALUE,$UNIT) = split(" ",$VALUE)}". 
                                                                                                           Dem Perl-Ausdruck werden die Variablen $VALUE und $UNIT übergeben. Sie können innerhalb
                                                                                                           des Perl-Code geändert werden. Der zurückgebene Wert von $VALUE und $UNIT wird in dem Feld 
                                                                                                           VALUE bzw. UNIT des Datensatzes gespeichert. </li></td></tr>
@@ -13475,7 +14486,7 @@ sub bdump {
                                       <tr><td> <b>time.*</b>                                  </td><td>: eine Reihe von Attributen zur Zeitabgrenzung </td></tr>
 	                                  <tr><td> <b>executeBeforeProc</b>                       </td><td>: ausführen FHEM Kommando (oder Perl-Routine) vor Start changeValue </td></tr>
                                       <tr><td> <b>executeAfterProc</b>                        </td><td>: ausführen FHEM Kommando (oder Perl-Routine) nach Ende changeValue </td></tr>
-                                      <tr><td style="vertical-align:top"> <b>valueFilter</b>       <td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
+                                      <tr><td> <b>valueFilter</b>                             </td><td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
                                       </table>
 	                               </ul>
 	                               <br>
@@ -13508,7 +14519,7 @@ sub bdump {
                                       <tr><td> <b>reading</b>                                </td><td>: einschließen oder ausschließen von Datensätzen die &lt;reading&gt; enthalten </td></tr>                                      
                                       <tr><td> <b>time.*</b>                                 </td><td>: eine Reihe von Attributen zur Zeitabgrenzung </td></tr>
                                       <tr><td> <b>readingNameMap</b>                         </td><td>: die entstehenden Ergebnisreadings werden partiell umbenannt </td></tr>
-                                      <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
+                                      <tr><td> <b>valueFilter</b>                            </td><td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
                                       </table>              
 	                               </ul>
 	                               <br>
@@ -13568,7 +14579,8 @@ sub bdump {
                                     <tr><td> <b>reading</b>                                </td><td>: einschließen oder ausschließen von Datensätzen die &lt;reading&gt; enthalten </td></tr>
 									<tr><td> <b>time.*</b>                                 </td><td>: eine Reihe von Attributen zur Zeitabgrenzung </td></tr>
 	                                <tr><td> <b>executeBeforeProc</b>                      </td><td>: ausführen FHEM Kommando (oder Perl-Routine) vor Start des Befehls </td></tr>
-                                    <tr><td> <b>executeAfterProc</b>                       </td><td>: ausführen FHEM Kommando (oder Perl-Routine) nach Ende des Befehls </td></tr>	                                <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
+                                    <tr><td> <b>executeAfterProc</b>                       </td><td>: ausführen FHEM Kommando (oder Perl-Routine) nach Ende des Befehls </td></tr>	                                
+									<tr><td> <b>valueFilter</b>                            </td><td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
 									</table>
 	                             </ul>
 	                             <br>
@@ -13576,7 +14588,7 @@ sub bdump {
                                 
                                  </li>
 
-    <li><b> delEntries </b>   -  löscht alle oder die durch die <a href="#DbRepattr">Attribute</a> device und/oder 
+    <li><b> delEntries [&lt;no&gt;[:&lt;nn&gt;]] </b>   -  löscht alle oder die durch die <a href="#DbRepattr">Attribute</a> device und/oder 
 	                             reading definierten Datenbankeinträge. Die Eingrenzung über Timestamps erfolgt 
 								 folgendermaßen: <br><br>
                                  
@@ -13589,8 +14601,13 @@ sub bdump {
                                  </ul>                                 
                                  <br>
                                  
-                                 Aus Sicherheitsgründen muss das <a href="#DbRepattr">Attribut</a> "allowDeletion" 
-								 gesetzt sein um die Löschfunktion freizuschalten. <br><br>
+                                 Aus Sicherheitsgründen muss das Attribut <a href="#allowDeletion">allowDeletion</a>
+								 gesetzt sein um die Löschfunktion freizuschalten. <br> 
+								 Zeitgrenzen (Tage) können als Option angegeben werden. In diesem Fall werden eventuell gesetzte Zeitattribute 
+								 übersteuert.
+								 Es werden Datensätze berücksichtigt die älter sind als <b>&lt;no&gt;</b> Tage und (optional) neuer sind als 
+								 <b>&lt;nn&gt;</b> Tage.
+								 <br><br>
                                  
                                  Die zur Steuerung von delEntries relevanten Attribute: <br><br>
 
@@ -13604,7 +14621,7 @@ sub bdump {
                                     <tr><td> <b>time.*</b>                                 </td><td>: eine Reihe von Attributen zur Zeitabgrenzung </td></tr>
 	                                <tr><td> <b>executeBeforeProc</b>                      </td><td>: ausführen FHEM Kommando (oder Perl-Routine) vor Start delEntries </td></tr>
                                     <tr><td> <b>executeAfterProc</b>                       </td><td>: ausführen FHEM Kommando (oder Perl-Routine) nach Ende delEntries </td></tr>
-                                    <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>    
+                                    <tr><td> <b>valueFilter</b>                            </td><td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>    
                                  </table>
 	                             </ul>
 	                             <br>
@@ -13618,8 +14635,8 @@ sub bdump {
 								 (Datenbankfeld VALUE). <br>
 								 Die <a href="#DbRepattr">Attribute</a> zur Aggregation,Zeit-,Device- und Reading-Abgrenzung werden dabei 
 								 berücksichtigt. Ist das Attribut "aggregation" nicht oder auf "no" gesetzt, wird als Standard die Aggregation 
-								 "day" verwendet. Für Datensätze mit numerischen Werten kann mit dem <a href="#DbRepattr">Attribut</a>
-                                 "seqDoubletsVariance" eine Abweichung eingestellt werden, bis zu der aufeinander folgende numerische Werte als
+								 "day" verwendet. Für Datensätze mit numerischen Werten kann mit dem Attribut <a href="#seqDoubletsVariance">seqDoubletsVariance</a>
+                                 eine Abweichung eingestellt werden, bis zu der aufeinander folgende numerische Werte als
                                  identisch angesehen und gelöscht werden sollen.
 	                             <br><br>
 								 
@@ -13633,14 +14650,14 @@ sub bdump {
 	                               </ul>
 	                               <br>
 
-                                 Aus Sicherheitsgründen muss das <a href="#DbRepattr">Attribut</a> "allowDeletion" für die "delete" Option
+                                 Aus Sicherheitsgründen muss das Attribut <a href="#allowDeletion"></a> für die "delete" Option
 								 gesetzt sein. <br>
 								 Die Anzahl der anzuzeigenden Datensätze der Kommandos "delSeqDoublets adviceDelete", "delSeqDoublets adviceRemain" ist 
-								 zunächst begrenzt (default 1000) und kann durch das <a href="#DbRepattr">Attribut</a> "limit" angepasst werden.
+								 zunächst begrenzt (default 1000) und kann durch das Attribut <a href="#limit">limit</a> angepasst werden.
 								 Die Einstellung von "limit" hat keinen Einfluss auf die "delSeqDoublets delete" Funktion, sondern beeinflusst <b>NUR</b> die 
 								 Anzeige der Daten.	 <br>
                                  Vor und nach der Ausführung von "delSeqDoublets" kann ein FHEM-Kommando bzw. Perl-Routine ausgeführt werden. 
-                                 (siehe <a href="#DbRepattr">Attribute</a>  "executeBeforeProc", "executeAfterProc")
+                                 (siehe Attribute <a href="#executeBeforeProc">executeBeforeProc</a>, <a href="#executeAfterProc">executeAfterProc</a>)
                                  <br><br>						   
 								  
 								 <ul>
@@ -13694,7 +14711,7 @@ sub bdump {
 									<tr><td> <b>time.*</b>                                 </td><td>: eine Reihe von Attributen zur Zeitabgrenzung </td></tr>
 	                                <tr><td> <b>executeBeforeProc</b>                      </td><td>: ausführen FHEM Kommando (oder Perl-Routine) vor Start des Befehls </td></tr>
                                     <tr><td> <b>executeAfterProc</b>                       </td><td>: ausführen FHEM Kommando (oder Perl-Routine) nach Ende des Befehls </td></tr>
-	                                <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
+	                                <tr><td> <b>valueFilter</b>                            </td><td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
 									</table>
 	                             </ul>
 	                             <br>
@@ -13724,13 +14741,13 @@ sub bdump {
                                  </ul>
           
     <li><b> diffValue [display | writeToDB] </b>    
-                                 - berechnet den Differenzwert des Datenbankfelds "VALUE" in den Zeitgrenzen (Attribute) "timestamp_begin", "timestamp_end" bzw "timeDiffToNow / timeOlderThan". 
-                                 Es muss das auszuwertende Reading im Attribut "reading" angegeben sein. 
-                                 Diese Funktion ist z.B. zur Auswertung von Eventloggings sinnvoll, deren Werte sich fortlaufend erhöhen und keine Wertdifferenzen wegschreiben. <br>								 
-                                 Es wird immer die Differenz aus dem Value-Wert des ersten verfügbaren Datensatzes und dem Value-Wert des letzten verfügbaren Datensatzes innerhalb der angegebenen
-                                 Zeitgrenzen/Aggregation gebildet, wobei ein Übertragswert der Vorperiode (Aggregation) zur darauf folgenden Aggregationsperiode 
-                                 berücksichtigt wird sofern diese einen Value-Wert enhtält.  <br>
-								 Dabei wird ein Zählerüberlauf (Neubeginn bei 0) mit berücksichtigt (vergleiche <a href="#DbRepattr">Attribut</a> "diffAccept"). <br>
+                                 - berechnet den Differenzwert des Datenbankfelds "VALUE" in den angegebenen Zeitgrenzen (siehe verschiedenen time*-Attribute). 
+                                 Es muss das auszuwertende Reading im Attribut <a href="#reading">reading</a> angegeben sein. <br>
+                                 Diese Funktion ist z.B. zur Auswertung von Daten sinnvoll, deren Werte sich fortlaufend erhöhen und keine Wertdifferenzen wegschreiben. <br>								 
+                                 Es wird immer die Differenz aus den VALUE-Werten der im Aggregationszeitraum (z.B. day) vorhandenen Datensätzen gebildet und aufsummiert, 
+								 wobei ein Übertragswert der Vorperiode (<a href="#aggregation">aggregation</a>) zur darauf folgenden Aggregationsperiode berücksichtigt wird, sofern diese einen Value-Wert 
+								 enhtält.  <br>
+								 Dabei wird ein Zählerüberlauf (Neubeginn bei 0) mit berücksichtigt (vergleiche Attribut <a href="#diffAccept">diffAccept</a>). <br>
 								 Wird in einer auszuwertenden Zeit- bzw. Aggregationsperiode nur ein Datensatz gefunden, kann die Differenz in Verbindung mit dem 
 								 Differenzübertrag der Vorperiode berechnet werden. in diesem Fall kann es zu einer logischen Ungenauigkeit in der Zuordnung der Differenz
                                  zu der Aggregationsperiode kommen. Deswegen wird eine Warnung im "state" und das 						 
@@ -13748,7 +14765,7 @@ sub bdump {
                                  der Option "writeToDB" werden die Berechnungsergebnisse mit einem neuen Readingnamen
                                  in der Datenbank gespeichert. <br>
                                  Der neue Readingname wird aus einem Präfix und dem originalen Readingnamen gebildet, 
-								 wobei der originale Readingname durch das Attribut "readingNameMap" ersetzt werden kann. 
+								 wobei der originale Readingname durch das Attribut <a href="#readingNameMap">readingNameMap</a> ersetzt werden kann. 
                                  Der Präfix setzt sich aus der Bildungsfunktion und der Aggregation zusammen. <br>
                                  Der Timestamp der neuen Readings in der Datenbank wird von der eingestellten Aggregationsperiode 
                                  abgeleitet, sofern kein eindeutiger Zeitpunkt des Ergebnisses bestimmt werden kann. 
@@ -13768,12 +14785,13 @@ sub bdump {
                                  <colgroup> <col width=5%> <col width=95%> </colgroup>
            					        <tr><td> <b>aggregation</b>                            </td><td>: Auswahl einer Aggregationsperiode </td></tr>
                                     <tr><td> <b>device</b>                                 </td><td>: einschließen oder ausschließen von Datensätzen die &lt;device&gt; enthalten </td></tr>
-	                                <tr><td> <b>executeBeforeProc</b>                      </td><td>: ausführen FHEM Kommando (oder Perl-Routine) vor Start Operation </td></tr>
+	                                <tr><td> <b>diffAccept</b>                             </td><td>: akzeptierte positive Werte-Differenz zwischen zwei unmittelbar aufeinander folgenden Datensätzen </td></tr>
+									<tr><td> <b>executeBeforeProc</b>                      </td><td>: ausführen FHEM Kommando (oder Perl-Routine) vor Start Operation </td></tr>
                                     <tr><td> <b>executeAfterProc</b>                       </td><td>: ausführen FHEM Kommando (oder Perl-Routine) nach Ende Operation </td></tr>
                                     <tr><td> <b>reading</b>                                </td><td>: einschließen oder ausschließen von Datensätzen die &lt;reading&gt; enthalten </td></tr>
                                     <tr><td> <b>readingNameMap</b>                         </td><td>: die entstehenden Ergebnisreadings werden partiell umbenannt </td></tr>									
-									<tr><td> <b>time.*</b>                                 </td><td>: eine Reihe von Attributen zur Zeitabgrenzung </td></tr>
-                                    <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
+									<tr><td> <b>time*</b>                                  </td><td>: eine Reihe von Attributen zur Zeitabgrenzung </td></tr>
+                                    <tr><td> <b>valueFilter</b>                            </td><td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
 									</table>
 	                             </ul>
 	                             <br>
@@ -14023,7 +15041,7 @@ sub bdump {
                                     <tr><td> <b>executeAfterProc</b>                       </td><td>: FHEM Kommando (oder Perl-Routine) nach dem Export ausführen </td></tr>
 	                                <tr><td> <b>expimpfile</b>                             </td><td>: der Name des Exportfiles </td></tr>
                                     <tr><td> <b>time.*</b>                                 </td><td>: eine Reihe von Attributen zur Zeitabgrenzung </td></tr>
-                                    <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
+                                    <tr><td> <b>valueFilter</b>                            </td><td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
                                  </table>
 	                             </ul>
 	                                
@@ -14037,10 +15055,12 @@ sub bdump {
 								 Die Leserichtung in der Datenbank kann durch das <a href="#DbRepattr">Attribut</a> 
 								 "fetchRoute" bestimmt werden. <br><br>
                                  
-                                 Jedes Ergebnisreading setzt sich aus dem Timestring des Datensatzes, einem Index, dem Device
-                                 und dem Reading zusammen.
+                                 Jedes Ergebnisreading setzt sich aus dem Timestring des Datensatzes, einem Dubletten-Index, 
+                                 dem Device und dem Reading zusammen.
                                  Die Funktion fetchrows ist in der Lage, mehrfach vorkommende Datensätze (Dubletten) zu erkennen.
-                                 Solche Dubletten sind mit einem Index > 1 gekennzeichnet. <br>
+                                 Solche Dubletten sind mit einem Dubletten-Index > 1 gekennzeichnet. Optional wird noch ein
+                                 Unique-Index angehängt, wenn Datensätze mit identischem Timestamp, Device und Reading aber 
+                                 unterschiedlichem Value vorhanden sind. <br>
                                  Dubletten können mit dem Attribut "fetchMarkDuplicates" farblich hervorgehoben werden. <br><br>
                                  
                                  <b>Hinweis:</b> <br>
@@ -14062,8 +15082,8 @@ sub bdump {
                                  
                                  <ul>
                                  <b>Beispiel:</b> <br>
-                                 2017-10-22_03-04-43__1__SMA_Energymeter__Bezug_WirkP_Kosten_Diff <br>
-                                 # &lt;Datum&gt;_&lt;Zeit&gt;__&lt;Index&gt;__&lt;Device&gt;__&lt;Reading&gt;
+                                 2017-10-22_03-04-43__1__SMA_Energymeter__Bezug_WirkP_Kosten_Diff__[1] <br>
+                                 # &lt;Datum&gt;_&lt;Zeit&gt;__&lt;Dubletten-Index&gt;__&lt;Device&gt;__&lt;Reading&gt;__[Unique-Index]
                                  </ul>                                 
                                  <br>
 
@@ -14073,13 +15093,14 @@ sub bdump {
 	                               <ul>
                                    <table>  
                                    <colgroup> <col width=5%> <col width=95%> </colgroup>
-                                      <tr><td> <b>fetchRoute</b>                             </td><td>: Leserichtung der Selektion innerhalb der Datenbank </td></tr>
-                                      <tr><td> <b>limit</b>                                  </td><td>: begrenzt die Anzahl zu selektierenden bzw. anzuzeigenden Datensätze  </td></tr>
-                                      <tr><td> <b>fetchMarkDuplicates</b>                    </td><td>: Hervorhebung von gefundenen Dubletten </td></tr>
                                       <tr><td> <b>device</b>                                 </td><td>: einschließen oder ausschließen von Datensätzen die &lt;device&gt; enthalten </td></tr>
+                                      <tr><td> <b>fetchRoute</b>                             </td><td>: Leserichtung der Selektion innerhalb der Datenbank </td></tr>
+                                      <tr><td> <b>fetchMarkDuplicates</b>                    </td><td>: Hervorhebung von gefundenen Dubletten </td></tr>
+                                      <tr><td> <b>fetchValueFn</b>                           </td><td>: der angezeigte Wert des VALUE Datenbankfeldes kann mit einer Funktion vor der Readingerstellung geändert werden </td></tr>
+                                      <tr><td> <b>limit</b>                                  </td><td>: begrenzt die Anzahl zu selektierenden bzw. anzuzeigenden Datensätze  </td></tr>
                                       <tr><td> <b>reading</b>                                </td><td>: einschließen oder ausschließen von Datensätzen die &lt;reading&gt; enthalten </td></tr>                                      
                                       <tr><td> <b>time.*</b>                                 </td><td>: eine Reihe von Attributen zur Zeitabgrenzung </td></tr>
-                                      <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: filtert die anzuzeigenden Datensätze mit einem regulären Ausdruck (Datenbank spezifischer REGEXP). Der REGEXP wird auf Werte des Datenbankfeldes 'VALUE' angewendet. </td></tr>
+                                      <tr><td> <b>valueFilter</b>                            </td><td>: filtert die anzuzeigenden Datensätze mit einem regulären Ausdruck (Datenbank spezifischer REGEXP). Der REGEXP wird auf Werte des Datenbankfeldes 'VALUE' angewendet. </td></tr>
                                    </table>
 	                               </ul>
 	                               <br>
@@ -14088,8 +15109,8 @@ sub bdump {
 								 <b>Hinweis:</b> <br>
                                  Auch wenn das Modul bezüglich der Datenbankabfrage nichtblockierend arbeitet, kann eine 
 								 zu große Ergebnismenge (Anzahl Zeilen bzw. Readings) die Browsersesssion bzw. FHEMWEB 
-								 blockieren. Aus diesem Grund wird die Ergebnismenge mit dem 
-								 <a href="#limit">Attribut</a> "limit" begrenzt. Bei Bedarf kann dieses Attribut 
+								 blockieren. Aus diesem Grund wird die Ergebnismenge mit dem Attribut
+								 <a href="#limit">'limit'</a> begrenzt. Bei Bedarf kann dieses Attribut 
 								 geändert werden, falls eine Anpassung der Selektionsbedingungen nicht möglich oder 
 								 gewünscht ist. <br><br>
 								 </li> <br> 
@@ -14098,7 +15119,7 @@ sub bdump {
 	                           - Listet die in der Datenbank vorhandenen Indexe auf bzw. legt die benötigten Indexe
                                an. Ist ein Index bereits angelegt, wird er erneuert (gelöscht und erneut angelegt) <br><br> 
 
-                               Die möglichen Optionen sind:	<br><br>									 
+                               Die möglichen Optionen sind:	<br><br>								 
 
 	                           <ul>
                                  <table>  
@@ -14111,6 +15132,19 @@ sub bdump {
                                  </table>              
 	                           </ul>
 	                           <br>
+                               
+                               Die für diese Funktion relevanten Attribute sind: <br><br>
+                               
+	                           <ul>
+                                 <table>  
+                                   <colgroup> <col width=39%> <col width=61%> </colgroup>
+                                   <tr><td> <b>useAdminCredentials</b>        </td><td>: benutzt einen privilegierten User für die Operation </td></tr>
+                                 </table>
+	                           </ul>
+	                           <br>
+                               
+                               <b>Hinweis:</b> <br>
+                               Der verwendete Datenbank-Nutzer benötigt das ALTER, CREATE und INDEX Privileg. <br>
                                    
                                </li> <br>								 
        
@@ -14167,25 +15201,28 @@ sub bdump {
                                  </ul>  
                                  <br>                                 
     
-    <li><b> maxValue [display | writeToDB] </b>     
+    <li><b> maxValue [display | writeToDB | deleteOther] </b>     
                                  - berechnet den Maximalwert des Datenbankfelds "VALUE" in den Zeitgrenzen 
-	                             (Attribute) "timestamp_begin", "timestamp_end" bzw. "timeDiffToNow / timeOlderThan". 
-                                 Es muss das auszuwertende Reading über das <a href="#DbRepattr">Attribut</a> "reading" 
+	                             (Attribute) "timestamp_begin", "timestamp_end" bzw. "timeDiffToNow / timeOlderThan" etc. 
+                                 Es muss das auszuwertende Reading über das Attribut <a href="#reading">reading</a>
 								 angegeben sein. 
                                  Die Auswertung enthält den Zeitstempel des ermittelten Maximumwertes innerhalb der 
 								 Aggregation bzw. Zeitgrenzen.  
-                                 Im Reading wird der Zeitstempel des <b>letzten</b> Auftretens vom Maximalwert ausgegeben
-								 falls dieser Wert im Intervall mehrfach erreicht wird. <br>
+                                 Im Reading wird der Zeitstempel des <b>letzten</b> Auftretens vom Maximalwert ausgegeben,
+								 falls dieser Wert im Intervall mehrfach erreicht wird. <br><br>
                                  
-                                 Ist keine oder die Option "display" angegeben, werden die Ergebnisse nur angezeigt. Mit 
-                                 der Option "writeToDB" werden die Berechnungsergebnisse mit einem neuen Readingnamen
+                                 Ist keine oder die Option <b>display</b> angegeben, werden die Ergebnisse nur angezeigt. Mit 
+                                 der Option <b>writeToDB</b> werden die Berechnungsergebnisse mit einem neuen Readingnamen
                                  in der Datenbank gespeichert. <br>
                                  Der neue Readingname wird aus einem Präfix und dem originalen Readingnamen gebildet, 
-								 wobei der originale Readingname durch das Attribut "readingNameMap" ersetzt werden kann. 
+								 wobei der originale Readingname durch das Attribut <a href="#readingNameMap">readingNameMap</a> ersetzt werden kann. 
                                  Der Präfix setzt sich aus der Bildungsfunktion und der Aggregation zusammen. <br>
-                                 Der Timestamp der neuen Readings in der Datenbank wird von der eingestellten Aggregationsperiode 
-                                 abgeleitet, sofern kein eindeutiger Zeitpunkt des Ergebnisses bestimmt werden kann. 
+                                 Der Timestamp des neuen Readings in der Datenbank wird von der eingestellten Aggregationsperiode 
+                                 abgeleitet. 
                                  Das Feld "EVENT" wird mit "calculated" gefüllt.<br><br>
+								 
+								 Wird die Option <b>deleteOther</b> verwendet, werden alle Datensätze außer dem Datensatz mit dem
+                                 ermittelten Maximalwert aus der Datenbank innerhalb der definierten Grenzen gelöscht. <br><br>							 
                                  
                                  <ul>
                                  <b>Beispiel neuer Readingname gebildet aus dem Originalreading "totalpac":</b> <br>
@@ -14201,12 +15238,12 @@ sub bdump {
                                  <colgroup> <col width=5%> <col width=95%> </colgroup>
            					        <tr><td> <b>aggregation</b>                            </td><td>: Auswahl einer Aggregationsperiode </td></tr>
                                     <tr><td> <b>device</b>                                 </td><td>: einschließen oder ausschließen von Datensätzen die &lt;device&gt; enthalten </td></tr>
-	                                <tr><td> <b>executeBeforeProc</b>                       </td><td>: ausführen FHEM Kommando (oder Perl-Routine) vor Start Operation </td></tr>
-                                    <tr><td> <b>executeAfterProc</b>                        </td><td>: ausführen FHEM Kommando (oder Perl-Routine) nach Ende Operation </td></tr>
+	                                <tr><td> <b>executeBeforeProc</b>                      </td><td>: ausführen FHEM Kommando (oder Perl-Routine) vor Start Operation </td></tr>
+                                    <tr><td> <b>executeAfterProc</b>                       </td><td>: ausführen FHEM Kommando (oder Perl-Routine) nach Ende Operation </td></tr>
                                     <tr><td> <b>reading</b>                                </td><td>: einschließen oder ausschließen von Datensätzen die &lt;reading&gt; enthalten </td></tr>
                                     <tr><td> <b>readingNameMap</b>                         </td><td>: die entstehenden Ergebnisreadings werden partiell umbenannt </td></tr>									
 									<tr><td> <b>time.*</b>                                 </td><td>: eine Reihe von Attributen zur Zeitabgrenzung </td></tr>
-                                    <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
+                                    <tr><td> <b>valueFilter</b>                            </td><td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
 									</table>
 	                             </ul>
 	                             <br>                                 
@@ -14214,25 +15251,28 @@ sub bdump {
                                  </li> <br>
                                                                 
                                  
-    <li><b> minValue [display | writeToDB]</b>     
+    <li><b> minValue [display | writeToDB | deleteOther]</b>     
                                  - berechnet den Minimalwert des Datenbankfelds "VALUE" in den Zeitgrenzen 
-	                             (Attribute) "timestamp_begin", "timestamp_end" bzw. "timeDiffToNow / timeOlderThan". 
-                                 Es muss das auszuwertende Reading über das <a href="#DbRepattr">Attribut</a> "reading" 
+	                             (Attribute) "timestamp_begin", "timestamp_end" bzw. "timeDiffToNow / timeOlderThan" etc.
+                                 Es muss das auszuwertende Reading über das Attribut <a href="#reading">reading</a> 
 								 angegeben sein. 
                                  Die Auswertung enthält den Zeitstempel des ermittelten Minimumwertes innerhalb der 
 								 Aggregation bzw. Zeitgrenzen.  
                                  Im Reading wird der Zeitstempel des <b>ersten</b> Auftretens vom Minimalwert ausgegeben 
-								 falls dieser Wert im Intervall mehrfach erreicht wird. <br>
+								 falls dieser Wert im Intervall mehrfach erreicht wird. <br><br>
                                  
-                                 Ist keine oder die Option "display" angegeben, werden die Ergebnisse nur angezeigt. Mit 
-                                 der Option "writeToDB" werden die Berechnungsergebnisse mit einem neuen Readingnamen
+                                 Ist keine oder die Option <b>display</b> angegeben, werden die Ergebnisse nur angezeigt. Mit 
+                                 der Option <b>writeToDB</b> werden die Berechnungsergebnisse mit einem neuen Readingnamen
                                  in der Datenbank gespeichert. <br>
                                  Der neue Readingname wird aus einem Präfix und dem originalen Readingnamen gebildet, 
-								 wobei der originale Readingname durch das Attribut "readingNameMap" ersetzt werden kann. 
+								 wobei der originale Readingname durch das Attribut <a href="#readingNameMap">readingNameMap</a> ersetzt werden kann. 
                                  Der Präfix setzt sich aus der Bildungsfunktion und der Aggregation zusammen. <br>
                                  Der Timestamp der neuen Readings in der Datenbank wird von der eingestellten Aggregationsperiode 
-                                 abgeleitet, sofern kein eindeutiger Zeitpunkt des Ergebnisses bestimmt werden kann. 
+                                 abgeleitet. 
                                  Das Feld "EVENT" wird mit "calculated" gefüllt.<br><br>
+								 
+								 Wird die Option <b>deleteOther</b> verwendet, werden alle Datensätze außer dem Datensatz mit dem
+                                 ermittelten Maximalwert aus der Datenbank innerhalb der definierten Grenzen gelöscht. <br><br>							 
                                  
                                  <ul>
                                  <b>Beispiel neuer Readingname gebildet aus dem Originalreading "totalpac":</b> <br>
@@ -14253,7 +15293,7 @@ sub bdump {
                                     <tr><td> <b>reading</b>                                </td><td>: einschließen oder ausschließen von Datensätzen die &lt;reading&gt; enthalten </td></tr>
                                     <tr><td> <b>readingNameMap</b>                         </td><td>: die entstehenden Ergebnisreadings werden partiell umbenannt </td></tr>									
 									<tr><td> <b>time.*</b>                                 </td><td>: eine Reihe von Attributen zur Zeitabgrenzung </td></tr>
-                                    <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
+                                    <tr><td> <b>valueFilter</b>                            </td><td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
 									</table>
 	                             </ul>
 	                             <br>                                 
@@ -14299,24 +15339,23 @@ sub bdump {
                                  im asynchronen Modus betrieben werden um ein Blockieren von FHEMWEB zu vermeiden (Tabellen-Lock). <br><br> 
                                  </li> <br>
 
-    <li><b> reduceLog [average[=day]] </b> <br>
-                                 Reduziert historische Datensätze innerhalb der durch die "time.*"-Attribute bestimmten 
-                                 Zeitgrenzen auf einen Eintrag (den ersten) pro Stunde je Device & Reading.
-                                 Es muss mindestens eines der "time.*"-Attribute gesetzt sein (siehe Tabelle unten). 
+    <li><b> reduceLog [&lt;no&gt;[:&lt;nn&gt;]] [average[=day]] [EXCLUDE=device1:reading1,device2:reading2,...] [INCLUDE=device:reading] </b> <br>
+                                 Reduziert historische Datensätze. <br><br>
+								 
+								 <b>Arbeitsweise ohne Optionsangabe</b> <br><br>
+								 
+								 Sind keine Optionen angegeben, werden die Daten innerhalb der durch die <b>time.*</b>-Attribute bestimmten 
+                                 Zeitgrenzen auf einen Eintrag (den ersten) pro Stunde je Device & Reading reduziert.
+                                 Es muss mindestens eines der <b>time.*</b>-Attribute gesetzt sein (siehe Tabelle unten). 
                                  Die jeweils fehlende Zeitabgrenzung wird in diesem Fall durch das Modul errechnet.
                                  <br><br>
                                  
-                                 Durch die optionale Angabe von 'average' wird nicht nur die Datenbank bereinigt, sondern 
-                                 alle numerischen Werte einer Stunde werden auf einen einzigen Mittelwert reduziert.
-                                 Mit der Option 'average=day' werden alle numerischen Werte eines Tages auf einen einzigen 
-                                 Mittelwert reduziert (impliziert 'average'). <br><br>
-                                 
-                                 Mit den Attributen "device" und "reading" können die zu berücksichtigenden Datensätze eingeschlossen
+                                 Mit den Attributen <b>device</b> und <b>reading</b> können die zu berücksichtigenden Datensätze eingeschlossen
                                  bzw. ausgeschlossen werden. Beide Eingrenzungen reduzieren die selektierten Daten und verringern den
                                  Ressourcenbedarf. 
                                  Das Reading "reduceLogState" enthält das Ausführungsergebnis des letzten reduceLog-Befehls.  <br><br>
-                                 
-                 	             Die für diese Funktion relevanten Attribute sind: <br><br>
+								 
+                 	             Unter Berücksichtigung des oben genannten sind für diese Funktion folgende Attribute relevant: <br><br>
                                  
 	                             <ul>
                                  <table>  
@@ -14329,22 +15368,13 @@ sub bdump {
                                     <tr><td> <b>timestamp_end</b>                          </td><td>: es werden Datenbankeinträge <b>älter</b> als dieses Attribut reduziert </td></tr>
                                     <tr><td> <b>timeDiffToNow</b>                          </td><td>: es werden Datenbankeinträge <b>neuer</b> als dieses Attribut reduziert </td></tr>
                                     <tr><td> <b>timestamp_begin</b>                        </td><td>: es werden Datenbankeinträge <b>neuer</b> als dieses Attribut reduziert </td></tr>
-                                    <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
+                                    <tr><td> <b>valueFilter</b>                            </td><td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
                                  </table>
 	                             </ul>
                                  <br>
-                                 
-                                 Aus Kompatibilitätsgründen kann der Befehl optional durch die Zusätze "EXCLUDE" bzw. "INCLUDE"
-                                 ergänzt werden um device/reading Kombinationen von reduceLog auszuschließen bzw. einzuschließen: <br><br>
-                                 <ul>
-                                 "reduceLog [average[=day]] [EXCLUDE=device1:reading1,device2:reading2,...] [INCLUDE=device:reading]" <br><br> 
-                                 </ul>
-                                 Diese Angabe wird als Regex ausgewertet und überschreibt die Attribute "device" und "reading",
-                                 die in diesem Fall nicht beachtet werden. <br><br>
-          
-                                 <ul>
+								 
                                  <b>Beispiele: </b><br><br>
-                                 
+                                 <ul>
                                  attr &lt;name&gt; timeOlderThan = d:200  <br>
                                  set &lt;name&gt; reduceLog <br>
                                  # Datensätze die älter als 200 Tage sind, werden auf den ersten Eintrag pro Stunde je Device & Reading
@@ -14374,7 +15404,21 @@ sub bdump {
                                  werden bereinigt. Numerische Werte einer Stunde werden auf einen Mittelwert reduziert <br>                                  
                                  <br>
 								 </ul>
-                                 
+								 <br>
+								 
+								 <b>Arbeitsweise mit Optionsangabe</b> <br><br>
+								 
+								 Es werden Datensätze berücksichtigt die älter sind als <b>&lt;no&gt;</b> Tage und (optional) neuer sind als 
+								 <b>&lt;nn&gt;</b> Tage.
+                                 Durch die Angabe von <b>average</b> wird nicht nur die Datenbank bereinigt, sondern 
+                                 alle numerischen Werte einer Stunde werden auf einen einzigen Mittelwert reduziert.
+                                 Mit der Option <b>average=day</b> werden alle numerischen Werte eines Tages auf einen einzigen 
+                                 Mittelwert reduziert (impliziert 'average'). <br><br>
+
+                                 Die Zusätze "EXCLUDE" bzw. "INCLUDE" können ergänzt werden um device/reading Kombinationen von reduceLog auszuschließen 
+								 bzw. einzuschließen. Diese Angabe wird als Regex ausgewertet und überschreibt die Einstellung der Attribute "device" 
+								 und "reading", die in diesem Fall nicht beachtet werden. <br><br>					
+                                        
 								 <b>Hinweis:</b> <br>
                                  Obwohl die Funktion selbst non-blocking ausgelegt ist, sollte das zugeordnete DbLog-Device
                                  im asynchronen Modus betrieben werden um ein Blockieren von FHEMWEB zu vermeiden 
@@ -14518,13 +15562,13 @@ sub bdump {
 	                                  <tr><td> <b>executeBeforeProc</b>   </td><td>: FHEM Kommando (oder Perl-Routine) vor der Operation ausführen </td></tr>
                                       <tr><td> <b>executeAfterProc</b>    </td><td>: FHEM Kommando (oder Perl-Routine) nach der Operation ausführen </td></tr>
                                       <tr><td> <b>allowDeletion</b>       </td><td>: aktiviert Löschmöglichkeit </td></tr>
-                                      <tr><td> <b>sqlResultFormat</b>     </td><td>: legt die Darstellung des Kommandoergebnis fest  </td></tr>
+                                      <tr><td> <b>sqlResultFormat</b>     </td><td>: legt die Darstellung des Kommandoergebnisses fest  </td></tr>
                                       <tr><td> <b>sqlResultFieldSep</b>   </td><td>: Auswahl Feldtrenner im Ergebnis </td></tr>
                                       <tr><td> <b>sqlCmdHistoryLength</b> </td><td>: Aktivierung Kommando-Historie und deren Umfang</td></tr>
                                       <tr><td> <b>sqlCmdVars</b>          </td><td>: setzt SQL Session Variablen oder PRAGMA vor jeder Ausführung des SQL-Statements </td></tr>
+                                      <tr><td> <b>useAdminCredentials</b> </td><td>: benutzt einen privilegierten User für die Operation </td></tr>
                                    </table>
 	                               </ul>
-	                               <br>
 	                               <br>  
                                  
 								 <b>Hinweis:</b> <br>
@@ -14538,9 +15582,7 @@ sub bdump {
     <li><b> sqlCmdHistory </b>   - Wenn mit dem <a href="#DbRepattr">Attribut</a> "sqlCmdHistoryLength" aktiviert, kann
                                    aus einer Liste ein bereits erfolgreich ausgeführtes sqlCmd-Kommando wiederholt werden. <br>
                                    Mit Ausführung des letzten Eintrags der Liste, "__purge_historylist__", kann die Liste gelöscht 
-                                   werden. <br>
-                                   Falls das Statement "," enthält, wird dieses Zeichen aus technischen Gründen in der 
-                                   History-Liste als "&lt;c&gt;" dargestellt. <br><br>
+                                   werden. <br><br>
                                    
                                    Zur besseren Übersicht sind die zur Steuerung dieser Funktion von relevanten Attribute 
                                    hier noch einmal zusammenstellt: <br><br>
@@ -14563,9 +15605,27 @@ sub bdump {
     <li><b> sqlSpecial </b>    - Die Funktion bietet eine Drop-Downliste mit einer Auswahl vorbereiter Auswertungen
                                  an. <br>
 								 Das Ergebnis des Statements wird im Reading "SqlResult" dargestellt.
-								 Die Ergebnis-Formatierung kann durch das <a href="#DbRepattr">Attribut</a> "sqlResultFormat" 
-                                 ausgewählt, sowie der verwendete Feldtrenner durch das <a href="#DbRepattr">Attribut</a> 
-                                 "sqlResultFieldSep" festgelegt werden. <br><br>
+								 Die Ergebnis-Formatierung kann durch das Attribut <a href="#sqlResultFormat">sqlResultFormat</a>
+                                 ausgewählt, sowie der verwendete Feldtrenner durch das Attribut <a href="#sqlResultFieldSep">sqlResultFieldSep</a> 
+                                 festgelegt werden. <br><br>
+								 
+                 	             Es sind die folgenden vordefinierte Auswertungen auswählbar: <br><br>
+	                               <ul>
+                                   <table>  
+                                   <colgroup> <col width=5%> <col width=95%> </colgroup>
+                                      <tr><td> <b>50mostFreqLogsLast2days </b>    </td><td>:    ermittelt die 50 am häufigsten vorkommenden Loggingeinträge der letzten 2 Tage </td></tr>
+                                      <tr><td> <b>allDevCount </b>                </td><td>:    alle in der Datenbank vorkommenden Devices und deren Anzahl </td></tr>
+                                      <tr><td> <b>allDevReadCount </b>            </td><td>:    alle in der Datenbank vorkommenden Device/Reading-Kombinationen und deren Anzahl</td></tr>
+									  <tr><td> <b>recentReadingsOfDevice </b>     </td><td>:    ermittelt die neuesten in der Datenbank vorhandenen Datensätze eines Devices. Das auszuwertende
+									                                                            Device muß im Attribut <a href="#device">device</a> definiert sein. 
+																						        Es kann nur <b>ein</b> auszuwertendes Device angegeben werden. </td></tr>
+									  <tr><td> <b>readingsDifferenceByTimeDelta </b> </td><td>: ermittelt die Wertedifferenz aufeinanderfolgender Datensätze eines Readings. Das auszuwertende
+									                                                            Device und Reading muß im Attribut <a href="#device">device</a> bzw. <a href="#reading">reading</a> definiert sein. 
+																						        Es kann nur <b>ein</b> auszuwertendes Device und nur <b>ein</b> auszuwertendes Reading angegeben werden. 
+                                                                                                Die Zeitgrenzen der Auswertung werden durch die time.*-Attribute festgelegt. </td></tr>                        
+                                   </table>
+	                               </ul>
+								   <br>
 
                  	             Die für diese Funktion relevanten Attribute sind: <br><br>
 	                               <ul>
@@ -14577,30 +15637,23 @@ sub bdump {
                                       <tr><td> <b>sqlResultFieldSep</b>  </td><td>: Auswahl des Trennzeichens zwischen Ergebnisfeldern </td></tr>
                                    </table>
 	                               </ul>
-                                   <br>
-                                   
-                 	             Es sind die folgenden vordefinierte Auswertungen auswählbar: <br><br>
-	                               <ul>
-                                   <table>  
-                                   <colgroup> <col width=5%> <col width=95%> </colgroup>
-                                      <tr><td> <b>50mostFreqLogsLast2days </b> </td><td>: ermittelt die 50 am häufigsten vorkommenden Loggingeinträge der letzten 2 Tage </td></tr>
-                                      <tr><td> <b>allDevCount </b>             </td><td>: alle in der Datenbank vorkommenden Devices und deren Anzahl </td></tr>
-                                      <tr><td> <b>allDevReadCount </b>         </td><td>: alle in der Datenbank vorkommenden Device/Reading-Kombinationen und deren Anzahl</td></tr>
-                                   </table>
-	                               </ul>
 	                                
                                  </li><br><br>
 								 
-    <li><b> sumValue [display | writeToDB]</b>     
+    <li><b> sumValue [display | writeToDB | writeToDBSingle]</b>     
                                  - Berechnet die Summenwerte des Datenbankfelds "VALUE" in den Zeitgrenzen 
-	                             (Attribute) "timestamp_begin", "timestamp_end" bzw. "timeDiffToNow / timeOlderThan". 
-                                 Es muss das auszuwertende Reading im <a href="#DbRepattr">Attribut</a> "reading" 
-								 angegeben sein. Diese Funktion ist sinnvoll wenn fortlaufend Wertedifferenzen eines 
-								 Readings in die Datenbank geschrieben werden.  <br>
+	                             der möglichen time.*-Attribute. <br><br>
                                  
-                                 Ist keine oder die Option "display" angegeben, werden die Ergebnisse nur angezeigt. Mit 
-                                 der Option "writeToDB" werden die Berechnungsergebnisse mit einem neuen Readingnamen
-                                 in der Datenbank gespeichert. <br>
+                                 Es muss das auszuwertende Reading im Attribut <a href="#reading">reading</a> 
+								 angegeben sein. Diese Funktion ist sinnvoll wenn fortlaufend Wertedifferenzen eines 
+								 Readings in die Datenbank geschrieben werden.  <br><br>
+                                 
+                                 Ist keine oder die Option <b>display</b> angegeben, werden die Ergebnisse nur angezeigt. Mit 
+                                 den Optionen <b>writeToDB</b> bzw. <b>writeToDBSingle</b> werden die Berechnungsergebnisse 
+                                 mit einem neuen Readingnamen in der Datenbank gespeichert. <br>
+                                 <b>writeToDB</b> schreibt jeweils einen Wert am Anfang und am Ende einer Auswertungsperiode.
+                                 <b>writeToDBSingle</b> schreibt nur einen Wert am Ende einer Auswertungsperiode. <br><br>
+                                 
                                  Der neue Readingname wird aus einem Präfix und dem originalen Readingnamen gebildet, 
 								 wobei der originale Readingname durch das Attribut "readingNameMap" ersetzt werden kann. 
                                  Der Präfix setzt sich aus der Bildungsfunktion und der Aggregation zusammen. <br>
@@ -14627,7 +15680,7 @@ sub bdump {
                                     <tr><td> <b>reading</b>                                </td><td>: einschließen oder ausschließen von Datensätzen die &lt;reading&gt; enthalten </td></tr>
                                     <tr><td> <b>readingNameMap</b>                         </td><td>: die entstehenden Ergebnisreadings werden partiell umbenannt </td></tr>									
 									<tr><td> <b>time.*</b>                                 </td><td>: eine Reihe von Attributen zur Zeitabgrenzung </td></tr>
-                                    <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
+                                    <tr><td> <b>valueFilter</b>                            </td><td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
 									</table>
 	                             </ul>
 	                             <br>                                 
@@ -14658,7 +15711,7 @@ sub bdump {
                                     <tr><td> <b>device</b>                                 </td><td>: einschließen oder ausschließen von Datensätzen die &lt;device&gt; enthalten </td></tr>
                                     <tr><td> <b>reading</b>                                </td><td>: einschließen oder ausschließen von Datensätzen die &lt;reading&gt; enthalten </td></tr>                                      
                                     <tr><td> <b>time.*</b>                                 </td><td>: Attribute zur Zeitabgrenzung der zu übertragenden Datensätze.  </td></tr>
-                                    <tr><td style="vertical-align:top"> <b>valueFilter</b>      <td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
+                                    <tr><td> <b>valueFilter</b>                            </td><td>: ein zusätzliches REGEXP um die Datenselektion zu steuern. Der REGEXP wird auf das Datenbankfeld 'VALUE' angewendet. </td></tr>
                                  </table>
 	                             </ul>
 	                             <br>                               
@@ -14818,6 +15871,10 @@ return $ret;
                             </li>     
                             <br><br>
                          
+    <li><b> storedCredentials </b> - Listet die im Device gespeicherten User / Passworte für den Datenbankzugriff auf. <br>
+                                   (nur gültig bei Datenbanktyp MYSQL)
+                                   </li>     
+                                   <br><br>
 								 
     <li><b> svrinfo </b> -  allgemeine Datenbankserver-Informationen wie z.B. die DBMS-Version, Serveradresse und Port usw. Die Menge der Listenelemente 
                             ist vom Datenbanktyp abhängig. Mit dem <a href="#DbRepattr">Attribut</a> "showSvrInfo" kann die Ergebnismenge eingeschränkt werden.
@@ -14902,10 +15959,12 @@ return $ret;
                                    <table>  
                                    <colgroup> <col width=20%> <col width=80%> </colgroup>
                                       <tr><td> <b>avgArithmeticMean                          :</b> </td><td>es wird der arithmetische Mittelwert berechnet (default) </td></tr>
-                                      <tr><td style="vertical-align:top"> <b>avgDailyMeanGWS :</b> <td>berechnet die Tagesmitteltemperatur entsprechend den
+                                      <tr><td> </td><td> </td></tr>
+									  <tr><td> <b>avgDailyMeanGWS                            :</b> </td><td>berechnet die Tagesmitteltemperatur entsprechend den
                                                                                                    Vorschriften des deutschen Wetterdienstes (siehe "get &lt;name&gt; versionNotes 2"). <br>
                                                                                                    Diese Variante verwendet automatisch die Aggregation "day". </td></tr>
-                                      <tr><td> <b>avgTimeWeightMean                          :</b> </td><td>berechnet den zeitgewichteten Mittelwert </td></tr>
+                                      <tr><td> </td><td> </td></tr>
+									  <tr><td> <b>avgTimeWeightMean                          :</b> </td><td>berechnet den zeitgewichteten Mittelwert </td></tr>
 								   </table>
 	                               </ul>
                                 </li><br>
@@ -14919,9 +15978,8 @@ return $ret;
  <a name="device"></a>
   <li><b>device </b>          - Abgrenzung der DB-Selektionen auf ein bestimmtes oder mehrere Devices. <br>
                                 Es können Geräte-Spezifikationen (devspec) angegeben werden. <br> 
-								Innerhalb von Geräte-Spezifikationen wird SQL-Wildcard (%) als normales ASCII-Zeichen gewertet. 
-								Die Devicenamen werden vor der Selektion aus der Geräte-Spezifikationen und den aktuell in FHEM 
-								vorhandenen Devices abgeleitet. <br>
+								In diesem Fall werden die Devicenamen vor der Selektion aus der Geräte-Spezifikationen und den aktuell in FHEM 
+								vorhandenen Devices aufgelöst. <br>
                                 Wird dem Device bzw. der Device-Liste oder Geräte-Spezifikation ein "EXCLUDE=" vorangestellt, 
                                 werden diese Devices von der Selektion ausgeschlossen.                                
                                 <br><br>
@@ -14934,6 +15992,7 @@ return $ret;
 								<code>attr &lt;name&gt; device SMA_Energymeter,MySTP_5000 </code> <br>
 								<code>attr &lt;name&gt; device %5000 </code> <br>
                                 <code>attr &lt;name&gt; device TYPE=SSCam EXCLUDE=SDS1_SVS </code> <br>	
+                                <code>attr &lt;name&gt; device TYPE=SSCam,TYPE=ESPEasy EXCLUDE=SDS1_SVS </code> <br>	
                                 <code>attr &lt;name&gt; device EXCLUDE=SDS1_SVS </code> <br>
                                 <code>attr &lt;name&gt; device EXCLUDE=TYPE=SSCam </code> <br>
 								</ul>
@@ -15117,6 +16176,21 @@ sub bdump {
 														  </ul>
 														  
 														</li> <br><br>
+                                                        
+  <a name="fetchValueFn"></a>
+  <li><b>fetchValueFn </b>      - Der angezeigte Wert des Datenbankfeldes VALUE kann vor der Erstellung des entsprechenden 
+                                Readings geändert werden. Das Attribut muss eine Perl Funktion eingeschlossen in {} 
+                                enthalten. <br>
+                                Der Wert des Datenbankfeldes VALUE wird in der Variable $VALUE zur Verfügung gestellt. <br><br>
+
+                                <ul>
+							    <b>Beispiel:</b> <br>
+								attr &lt;name&gt; fetchValueFn { $VALUE =~ s/^.*Used:\s(.*)\sMB,.*/$1." MB"/e } <br>
+								
+								# Von einer langen Ausgabe wird ein spezifisches Zeichenmuster extrahiert und als VALUE 
+                                anstatt der gesamten Zeile im Reading angezeigt. 
+                                </ul>
+                                </li> <br><br>
  
   <a name="ftpUse"></a> 
   <li><b>ftpUse </b>          - FTP Transfer nach einem Dump wird eingeschaltet (ohne SSL Verschlüsselung). Das erzeugte 
@@ -15180,9 +16254,9 @@ sub bdump {
   <li><b>reading </b>         - Abgrenzung der DB-Selektionen auf ein bestimmtes oder mehrere Readings sowie exkludieren von
                                 Readings.
                                 Mehrere Readings werden als Komma separierte Liste angegeben. 
-								SQL Wildcard (%) wird in einer Liste als normales ASCII-Zeichen gewertet. <br>
+                                Es können SQL Wildcard (%) verwendet werden. <br>
                                 Wird dem Reading bzw. der Reading-Liste ein "EXCLUDE=" vorangestellt, werden diese Readings
-                                von der Selektion ausgeschlossen.
+                                nicht inkludiert.
                                 <br><br>  
 								
                                 <ul>
@@ -15190,14 +16264,14 @@ sub bdump {
 								<code>attr &lt;name&gt; reading etotal</code> <br>
 								<code>attr &lt;name&gt; reading et%</code> <br>
 								<code>attr &lt;name&gt; reading etotal,etoday</code> <br>
-                                <code>attr &lt;name&gt; reading etotal,etoday EXCLUDE=state  </code> <br>
-                                <code>attr &lt;name&gt; reading etotal,etoday EXCLUDE=Einspeisung%  </code> <br>
+                                <code>attr &lt;name&gt; reading eto%,Einspeisung EXCLUDE=etoday  </code> <br>
+                                <code>attr &lt;name&gt; reading etotal,etoday,Ein% EXCLUDE=%Wirkleistung  </code> <br>
 								</ul>
 								<br><br>
                                 </li>
 
   <a name="readingNameMap"></a>								
-  <li><b>readingNameMap </b>  - der Name des ausgewerteten Readings wird mit diesem String für die Anzeige überschrieben  </li> <br>
+  <li><b>readingNameMap </b>  - ein Teil des erstellten Readingnamens wird mit dem angegebenen String ersetzt.  </li> <br>
   
   <a name="readingPreventFromDel"></a>
   <li><b>readingPreventFromDel </b>  - Komma separierte Liste von Readings die vor einer neuen Operation nicht gelöscht 
@@ -15212,17 +16286,27 @@ sub bdump {
                                 </li> <br>
 
   <a name="seqDoubletsVariance"></a>								
-  <li><b>seqDoubletsVariance </b> - akzeptierte Abweichung (+/-) für das Kommando "set &lt;name&gt; delSeqDoublets". <br>
+  <li><b>seqDoubletsVariance  &lt;positive Abweichung [negative Abweichung] [EDGE=negative|positive]&gt; </b> <br> 
+                                    Akzeptierte Abweichung für das Kommando "set &lt;name&gt; delSeqDoublets". <br>
                                     Der Wert des Attributs beschreibt die Abweichung bis zu der aufeinanderfolgende numerische 
-                                    Werte (VALUE) von Datensätze als gleich angesehen und gelöscht werden sollen. 
-                                    "seqDoubletsVariance" ist ein absoluter Zahlenwert, 
-                                    der sowohl als positive als auch negative Abweichung verwendet wird. 
+                                    Werte (VALUE) von Datensätzen als gleich angesehen werden sollen.
+                                    Ist in "seqDoubletsVariance" nur ein Zahlenwert angegeben, wird er sowohl als positive als 
+                                    auch negative Abweichung verwendet und bilden den "Löschkorridor". 
+                                    Optional kann ein zweiter Zahlenwert für eine negative Abweichung, getrennt durch 
+                                    Leerzeichen, angegeben werden. 
+                                    Es sind immer absolute, d.h. positive Zahlenwerte anzugeben. <br>
+                                    Ist der Zusatz "EDGE=negative" angegeben, werden Werte an einer negativen Flanke 
+                                    (z.B. beim Wechel von 4.0 -&gt; 1.0) nicht gelöscht auch wenn sie sich im "Löschkorridor"
+                                    befinden. Entsprechendes gilt bei "EDGE=positive" für die positive Flanke (z.B. beim Wechel 
+                                    von 1.2 -&gt; 2.8).
                                     <br><br>
 
                                     <ul>
 							        <b>Beispiele:</b> <br>
-								    <code>attr &lt;name&gt; seqDoubletsVariance 0.0014 </code> <br>
-								    <code>attr &lt;name&gt; seqDoubletsVariance 1.45   </code> <br>
+								    <code>attr &lt;name&gt; seqDoubletsVariance 0.0014  </code> <br>
+								    <code>attr &lt;name&gt; seqDoubletsVariance 1.45    </code> <br>
+                                    <code>attr &lt;name&gt; seqDoubletsVariance 3.0 2.0 </code> <br>
+                                    <code>attr &lt;name&gt; seqDoubletsVariance 1.5 EDGE=negative </code> <br>
 								    </ul>
 								    <br><br>
                                     </li>                                    
@@ -15448,15 +16532,16 @@ sub bdump {
   
   <a name="timeDiffToNow"></a> 
   <li><b>timeDiffToNow </b>   - der <b>Selektionsbeginn</b> wird auf den Zeitpunkt <b>"&lt;aktuelle Zeit&gt; - &lt;timeDiffToNow&gt;"</b> 
-                                gesetzt (z.b. werden die letzten 24 Stunden in die Selektion eingehen wenn das Attribut auf "86400" gesetzt 
-								wurde). Die Timestampermittlung erfolgt dynamisch zum Ausführungszeitpunkt.   
+                                gesetzt. Die Timestampermittlung erfolgt dynamisch zum Ausführungszeitpunkt. Optional kann mit 
+                                der Zusatzangabe "FullDay" der Selektionsbeginn und das Selektionsende auf Beginn / Ende der 
+                                jeweiligen Selektionstage erweitert werden (wirkt nur wenn eingestellte Zeitdifferenz ist >= 1 Tag).
                                 <br><br>
 								
                                 <ul>
-							    <b>Eingabeformat Beispiel:</b> <br>
-								<code>attr &lt;name&gt; timeDiffToNow 86400</code> <br>
+							    <b>Eingabeformat Beispiele:</b> <br>
+								<code>attr &lt;name&gt; timeDiffToNow 86400 </code> <br>
                                 # die Startzeit wird auf "aktuelle Zeit - 86400 Sekunden" gesetzt <br>
-								<code>attr &lt;name&gt; timeDiffToNow d:2 h:3 m:2 s:10</code> <br>
+								<code>attr &lt;name&gt; timeDiffToNow d:2 h:3 m:2 s:10 </code> <br>
                                 # die Startzeit wird auf "aktuelle Zeit - 2 Tage 3 Stunden 2 Minuten 10 Sekunden" gesetzt <br>							
 								<code>attr &lt;name&gt; timeDiffToNow m:600</code> <br> 
                                 # die Startzeit wird auf "aktuelle Zeit - 600 Minuten" gesetzt <br>
@@ -15466,6 +16551,8 @@ sub bdump {
                                 # die Startzeit wird auf "aktuelle Zeit - 1 Jahr und 2,5 Stunden" gesetzt <br>
 								<code>attr &lt;name&gt; timeDiffToNow y:1.5</code> <br>
                                 # die Startzeit wird auf "aktuelle Zeit - 1,5 Jahre gesetzt <br>
+								<code>attr &lt;name&gt; timeDiffToNow d:8 FullDay </code> <br>
+                                # die Startzeit wird auf "aktuelle Zeit - 8 Tage gesetzt, der Selektionszeitraum wird auf Beginn / Ende der beteiligten Tage erweitert  <br>
 								</ul>
 								<br>
                                 
@@ -15477,13 +16564,14 @@ sub bdump {
   <a name="timeOlderThan"></a> 								
   <li><b>timeOlderThan </b>   - das <b>Selektionsende</b> wird auf den Zeitpunkt <b>"&lt;aktuelle Zeit&gt; - &lt;timeOlderThan&gt;"</b> 
                                 gesetzt. Dadurch werden alle Datensätze bis zu dem Zeitpunkt "&lt;aktuelle 
-								Zeit&gt; - &lt;timeOlderThan&gt;" berücksichtigt (z.b. wenn auf 86400 gesetzt, werden alle
-								Datensätze die älter als ein Tag sind berücksichtigt). Die Timestampermittlung erfolgt 
-								dynamisch zum Ausführungszeitpunkt. 
+								Zeit&gt; - &lt;timeOlderThan&gt;" berücksichtigt. Die Timestampermittlung erfolgt 
+								dynamisch zum Ausführungszeitpunkt. Optional kann mit der Zusatzangabe 
+                                "FullDay" der Selektionsbeginn und das Selektionsende auf Beginn / Ende der jeweiligen 
+                                Selektionstage erweitert werden (wirkt nur wenn eingestellte Zeitdifferenz ist >= 1 Tag).
                                 <br><br>
 
                                 <ul>
-							    <b>Eingabeformat Beispiel:</b> <br>
+							    <b>Eingabeformat Beispiele:</b> <br>
 								<code>attr &lt;name&gt; timeOlderThan 86400</code> <br>
                                 # das Selektionsende wird auf "aktuelle Zeit - 86400 Sekunden" gesetzt <br>
 								<code>attr &lt;name&gt; timeOlderThan d:2 h:3 m:2 s:10</code> <br>
@@ -15496,6 +16584,9 @@ sub bdump {
                                 # das Selektionsende wird auf "aktuelle Zeit - 1 Jahr und 2,5 Stunden" gesetzt <br>
 								<code>attr &lt;name&gt; timeOlderThan y:1.5</code> <br>
                                 # das Selektionsende wird auf "aktuelle Zeit - 1,5 Jahre gesetzt <br>
+								<code>attr &lt;name&gt; timeOlderThan d:8 FullDay </code> <br>
+                                # das Selektionsende wird auf "aktuelle Zeit - 8 Tage gesetzt, der Selektionszeitraum wird auf Beginn / Ende der beteiligten Tage erweitert  <br>
+
 								</ul>
 								<br>
                                 
@@ -15507,11 +16598,18 @@ sub bdump {
   <a name="timeout"></a> 								
   <li><b>timeout </b>         - das Attribut setzt den Timeout-Wert für die Blocking-Call Routinen in Sekunden  
                                 (Default: 86400) </li> <br>
+                                
+  <a name="useAdminCredentials"></a> 								
+  <li><b>useAdminCredentials </b>         
+                                - Wenn gesetzt, wird ein zuvor mit "set &lt;Name&gt; adminCredentials" gespeicherter 
+                                  privilegierter User für bestimmte Datenbankoperationen verwendet. <br>
+                                  (nur gültig für Datenbanktyp MYSQL und DbRep-Typ "Client")
+                                  </li> <br>
 
   <a name="userExitFn"></a> 								
   <li><b>userExitFn   </b>    - stellt eine Schnittstelle zur Ausführung eigenen Usercodes zur Verfügung. <br>
                                 Um die Schnittstelle zu aktivieren, wird zunächst die aufzurufende Subroutine in 
-							    99_myUtls.pm nach folgendem Muster erstellt:     <br>
+							    99_myUtils.pm nach folgendem Muster erstellt:     <br>
 
 		<pre>
         sub UserFunction {
@@ -15537,9 +16635,9 @@ sub bdump {
 							   </ul>
 							   <br>
 							   
-							   Grundsätzlich arbeitet die Schnittstelle OHNE Eventgenerierung bzw. benötigt zur Funktion keinen
-							   Event. Sofern das Attribut gesetzt ist, erfolgt Die Regexprüfung NACH der Erstellung eines
-							   Readings. Ist die Prüfung WAHR, wird die angegebene Funktion aufgerufen. 
+							   Grundsätzlich arbeitet die Schnittstelle <b>ohne</b> Eventgenerierung bzw. benötigt zur Funktion keinen
+							   Event. Sofern das Attribut gesetzt ist, erfolgt Die Regexprüfung <b>nach</b> der Erstellung jedes
+							   Readings im Device. Ist die Prüfung <b>wahr</b>, wird die angegebene Funktion aufgerufen. 
 							   Zur Weiterverarbeitung werden der aufgerufenenen Funktion folgende Variablen übergeben: <br><br>
                                
 							   <ul>
@@ -15733,4 +16831,4 @@ sub bdump {
 }
 =end :application/json;q=META.json
 
-=cut
+=cutt

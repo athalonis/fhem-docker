@@ -1,10 +1,37 @@
 ##############################################
-# $Id: AttrTemplate.pm 19085 2019-04-01 17:00:24Z rudolfkoenig $
+# $Id: AttrTemplate.pm 21408 2020-03-11 16:09:28Z rudolfkoenig $
 package main;
+
+# Syntax of the AttrTemplate file:
+# - empty lines are ignored
+# - lines starting with # are comments (see also desc:)
+# - lines starting with the following keywords are special, all others are
+#   regular FHEM commands
+# - name:<name> name of the template, marks the end of the previous template.
+# - filter:<devspec2array-expression>, describing the list of devices this
+#   template is applicable for. Well be executed when the set function is
+#   executed.
+# - prereq:<cond>, where cond is a perl expression, or devspec2array returning
+#   exactly one device.  Evaluated at initialization(!).
+# - par:<name>:<comment>:<perl>. if there is an additional argument in the set,
+#   name in alle commands will be replaced with it. Else <perl> will be
+#   excuted: if returns a value, name in the commands will be replaced with it,
+#   else an error message/dialog will request the user to enter a value for
+#   name.
+#   For each name starting with RADIO_, a radio select button is offered. Such
+#   parameters must defined last.
+# - desc: additional text for the "set attrTemplate help ?". If missing, the
+#   last comment before name: will be used for this purpose.
+# - farewell:<text> to be shown after the commands are executed.
+# - order:<val> sort the templates for help purposes.
+# - option:<perl> if perl code return false, skip all commands until next
+#   option (or name:)
+
 
 my %templates;
 my $initialized;
 my %cachedUsage;
+use vars qw($FW_addJs);     # Only for helper like AttrTemplate
 
 sub
 AttrTemplate_Initialize()
@@ -68,6 +95,9 @@ AttrTemplate_Initialize()
       } elsif($line =~ m/^farewell:(.*)/) {
         $templates{$name}{farewell} = $1;
 
+      } elsif($line =~ m/^order:(.*)/) {
+        $templates{$name}{order} = $1;
+
       } else {
         push(@{$templates{$name}{cmds}}, $line);
 
@@ -80,9 +110,53 @@ AttrTemplate_Initialize()
     delete($templates{$name});
   }
 
-  my $nr = (int keys %templates);
+  @templates = sort {
+    my $ao = $templates{$a}{order};
+    my $bo = $templates{$b}{order};
+    $ao = (defined($ao) ? $ao : $a);
+    $bo = (defined($bo) ? $bo : $b);
+    return $ao cmp $bo; 
+  } keys %templates;
+
+  my $nr = @templates;
   $initialized = 1;
   Log 2, "AttrTemplates: got $nr entries" if($nr);
+  $FW_addJs = "" if(!defined($FW_addJs));
+  return if($FW_addJs =~ m/attrTemplateHelp/);
+  $FW_addJs .= << 'JSEND';
+  <script type="text/javascript">
+    $(document).ready(function() {
+      $("select.set").change(attrAct);
+      function
+      attrAct(){
+        if($("select.set").val() == "attrTemplate") {
+          $('<div id="attrTemplateHelp" class="makeTable help"></div>')
+                .insertBefore("div.makeTable.internals");
+          $("select.select_widget[informid$=attrTemplate]").change(function(){
+            var cmd = "{AttrTemplate_Help('"+$(this).val()+"')}";
+            FW_cmd(FW_root+"?cmd="+cmd+"&XHR=1", function(ret) {
+              $("div#attrTemplateHelp").html(ret);
+            });
+          });
+        } else {
+          $("div#attrTemplateHelp").remove();
+        }
+      }
+      attrAct();
+    });
+  </script>
+JSEND
+}
+
+sub
+AttrTemplate_Help($)
+{
+  my ($n) = @_;
+  return "" if(!$templates{$n});
+  my $ret = "";
+  $ret = $templates{$n}{desc} if($templates{$n}{desc});
+  $ret .= "<br><pre>".join("\n",@{$templates{$n}{cmds}})."</pre>";
+  return $ret;
 }
 
 sub
@@ -100,7 +174,7 @@ AttrTemplate_Set($$@)
   if($cmd ne "attrTemplate") {
     if(!$cachedUsage{$name}) {
       my @list;
-      for my $k (sort keys %templates) {
+      for my $k (@templates) {
         my $h = $templates{$k};
         my $matches;
         $matches = devspec2array($h->{filter}, undef, [$name]) if($h->{filter});
@@ -121,7 +195,7 @@ AttrTemplate_Set($$@)
 
   if($entry eq "?") {
     my @hlp;
-    for my $k (sort keys %templates) {
+    for my $k (@templates) {
       my $h = $templates{$k};
       my $matches;
       $matches = devspec2array($h->{filter}, undef, [$name]) if($h->{filter});
@@ -137,17 +211,49 @@ AttrTemplate_Set($$@)
     return join("\n", @hlp);
   }
 
+  if($entry eq "checkPar") {
+    my @ret;
+    foreach $entry (sort keys %templates) {
+      my $h = $templates{$entry};
+      for my $k (@{$h->{pars}}) {
+        my ($parname, $comment, $perl_code) = split(";",$k,3);
+        nex if(!$perl_code);
+        $perl_code =~ s/(?<!\\)DEVICE/bla/g;
+        $perl_code =~ s/\\DEVICE/DEVICE/g;
+        my $ret = eval $perl_code;
+        push @ret,"$entry:$parname:$@" if($@);
+      }
+    }
+    return "No errors found" if (!@ret);
+    return join("\n", @ret);
+  }
+
   my $h = $templates{$entry};
   return "Unknown template_entry_name $entry" if(!$h);
 
-  my (%repl, @mComm, @mList, $missing);
+  my (@na, %repl, @mComm, @mList, $missing);
+  for(my $i1=0; $i1<@a; $i1++) { # parse parname=value form the command line
+    my $fnd;
+    for my $k (@{$h->{pars}}) {
+      my ($parname, $comment, $perl_code) = split(";",$k,3);
+      if($a[$i1] =~ m/$parname=(.*)/) {
+        $repl{$parname} = $1;
+        return "Empty parameters are not allowed" if($1 eq "");
+        $fnd=1;
+        last;
+      }
+    }
+    push(@na,$a[$i1]) if(!$fnd);
+  }
+  @a = @na;
+
   for my $k (@{$h->{pars}}) {
     my ($parname, $comment, $perl_code) = split(";",$k,3);
 
-    if(@a) {
+    next if(defined($repl{$parname}));
+
+    if(@a) { # old-style, without prefix
       $repl{$parname} = $a[0];
-      push(@mList, $parname);
-      push(@mComm, "$parname: with the $comment");
       shift(@a);
       next;
     }
@@ -156,15 +262,16 @@ AttrTemplate_Set($$@)
       $perl_code =~ s/(?<!\\)DEVICE/$name/g;
       $perl_code =~ s/\\DEVICE/DEVICE/g;
       my $ret = eval $perl_code;
-      return "Error checking template regexp: $@" if($@);
-      if($ret) {
+      return "ERROR executing perl-code $perl_code for param $parname: $@ "
+                if($@);
+      if(defined($ret)) {
         $repl{$parname} = $ret;
         next;
       }
     }
 
-    push(@mList, $parname);
-    push(@mComm, "$parname: with the $comment");
+    push(@mList, "$parname=...");
+    push(@mComm, "$parname= with $comment");
     $missing = 1;
   }
 
@@ -172,26 +279,46 @@ AttrTemplate_Set($$@)
     if($hash->{CL} && $hash->{CL}{TYPE} eq "FHEMWEB") {
       return
       "<html>".
-         "<input size='60' type='text' spellcheck='false' ".
-                "value='set $name attrTemplate $entry @mList'>".
-         "<br><br>Replace<br>".join("<br>",@mComm).
+         "<input type='hidden' value='set $name attrTemplate $entry'>".
+         "<p>Specify the unknown parameters for $entry:</p>".
+         "<table class='block wide'><tr>".
+         join("</tr><tr>", map { 
+           my @t=split("= with ",$_,2);
+           "<td>$t[1]</td><td>" .($t[0] =~ m/^RADIO_/ ?
+             "<input type='radio' name='s' value='$t[0]'>":
+             "<input type='text' name='$t[0]' size='20'></td>")
+         } @mComm)."</tr></table>".
         '<script>
           setTimeout(function(){
-            // TODO: fix multiple dialog calls
+            $("#FW_okDialog input[type=radio]").first().prop("checked",true);
             $("#FW_okDialog").parent().find("button").css("display","block");
             $("#FW_okDialog").parent().find(".ui-dialog-buttonpane button")
             .unbind("click").click(function(){
-              var val = encodeURIComponent($("#FW_okDialog input").val());
-              FW_cmd(FW_root+"?cmd="+val+"&XHR=1",
-                     function(){ location.reload() } );
+              var cmd;
+              $("#FW_okDialog input").each(function(){
+                var t=$(this).attr("type");
+                if(t=="hidden") cmd = $(this).val();
+                if(t=="text")  cmd +=" "+$(this).attr("name")+"="+$(this).val();
+                if(t=="radio") cmd +=" "+$(this).val()+"="+
+                                          ($(this).prop("checked") ? 1:0);
+              });
+              FW_cmd(FW_root+"?cmd="+encodeURIComponent(cmd)+"&XHR=1",
+              function(resp){
+                if(resp) {
+                  if(!resp.match(/^<html>[\s\S]*<\/html>/))
+                    resp = "<pre>"+resp+"</pre>";
+                  return FW_okDialog(resp);
+                }
+                location.reload()
+              });
               $("#FW_okDialog").remove();
             })}, 100);
          </script>
        </html>';
 
     } else {
-      return "Usage: set $name attrTemplate $entry @mList\nReplace\n".
-               join("\n", @mComm);
+      return "Usage: set $name attrTemplate $entry @mList\n".
+             "Replace the ... after\n".join("\n", @mComm);
 
     }
   }

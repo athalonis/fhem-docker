@@ -28,7 +28,7 @@
 #  GNU General Public License for more details.
 #
 #
-# $Id: 74_GardenaSmartDevice.pm 19641 2019-06-18 14:47:13Z CoolTux $
+# $Id: 74_GardenaSmartDevice.pm 21292 2020-02-27 12:29:10Z CoolTux $
 #
 ###############################################################################
 ##
@@ -66,7 +66,7 @@ use warnings;
 use POSIX;
 use FHEM::Meta;
 use Time::Local;
-our $VERSION = '1.6.5';
+our $VERSION = '1.6.6';
 
 # try to use JSON::MaybeXS wrapper
 #   for chance of better performance + open code
@@ -629,7 +629,7 @@ sub WriteReadings($$) {
     readingsBulkUpdate(
         $hash, 'state',
         (
-              ReadingsVal( $name, 'outlet-valve_open', 'readingsValError' ) == 1
+              ReadingsVal( $name, 'outlet-valve_open', 0 ) == 1
             ? RigRadingsValue( $hash, 'open' )
             : RigRadingsValue( $hash, 'closed' )
         )

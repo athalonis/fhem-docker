@@ -1,5 +1,5 @@
 
-# $Id: 39_alexa.pm 19098 2019-04-02 16:38:49Z justme1968 $
+# $Id: 39_alexa.pm 21229 2020-02-19 16:36:48Z justme1968 $
 
 package main;
 
@@ -42,6 +42,7 @@ alexa_Initialize($)
   $hash->{AttrList} = "alexaMapping:textField-long alexaTypes:textField-long fhemIntents:textField-long ".
                       "articles prepositions ".
                       "echoRooms:textField-long ".
+                      "persons:textField-long ".
                       "alexaConfirmationLevel:2,1,0 alexaStatusLevel:2,1 ".
                       "skillId:textField ".
                       "alexaFHEM-cmd ".
@@ -102,6 +103,10 @@ alexa_AttrDefaults($)
     CommandAttr(undef,"$name echoRooms #<deviceId>=<room>\n" );
   }
 
+  if( !AttrVal( $name, 'persons', undef ) ) {
+    CommandAttr(undef,"$name persons #<personId>=<name>\n" );
+  }
+
 
   if( !AttrVal( $name, 'fhemIntents', undef ) ) {
     CommandAttr(undef,"$name fhemIntents #IntentName=<sample utterance>\n".
@@ -133,6 +138,7 @@ alexa_Define($$)
 
   addToAttrList("$hash->{TYPE}Name");
   addToAttrList("$hash->{TYPE}Room");
+  addToAttrList("$hash->{TYPE}ProactiveEvents:1,0");
 
   alexa_AttrDefaults($hash);
 
@@ -390,6 +396,7 @@ alexa_configDefault($;$)
     $conf->{connections} = [{}] if( !$conf->{connections} );
     $conf->{connections}[0]->{name} = 'FHEM' if( !$conf->{connections}[0]->{name} );
     $conf->{connections}[0]->{server} = $ip if( !$conf->{connections}[0]->{server} );
+    #$conf->{connections}[0]->{proactiveEvents} = JSON::false if( !$conf->{connections}[0]->{proactiveEvents} );
     $conf->{connections}[0]->{filter} = 'alexaName=..*' if( !$conf->{connections}[0]->{filter} );
     $conf->{connections}[0]->{uid} = $< if( $conf->{sshproxy} );
 
@@ -1221,6 +1228,7 @@ alexa_Attr($$$)
 1;
 
 =pod
+=item tag publicAPI
 =item summary    Module to control the FHEM/Alexa integration
 =item summary_DE Modul zur Konfiguration der FHEM/Alexa Integration
 =begin html
@@ -1292,8 +1300,17 @@ alexa_Attr($$$)
 
     <li>alexaName<br>
       The name to use for a device with alexa.</li>
+
+    <br>The following attributes are only relevant for custom skills:
+
     <li>alexaRoom<br>
       The room name to use for a device with alexa.</li>
+
+    <li>alexaProactiveEvents<br>
+      0 -> don't send proactiveEvents to amazon (default)<br>
+      1 -> send proactiveEvents to amazon<br>
+      devices that send proactiveEvents to amazon can be used to trigger alexa routines.<br>
+      setting alexaProactiveEvents to 0 in the alexa device itself will disable all event reporting for this fhem instance</li>
     <li>articles<br>
       defaults to: der,die,das,den</li>
     <li>prepositions<br>
@@ -1304,6 +1321,8 @@ alexa_Attr($$$)
       maps spoken device types to ServiceClasses. eg: attr alexa alexaTypes light:licht,lampe,lampen blind:rolladen,jalousie,rollo Outlet:steckdose TemperatureSensor:thermometer LockMechanism:schloss OccupancySensor: anwesenheit</li>
     <li>echoRooms<br>
       maps echo devices to default rooms.</li>
+    <li>persons<br>
+      maps personIds to names.</li>
     <li>fhemIntents<br>
       maps spoken commands directed to fhem as a whole (i.e. not to specific devices) to events from the alexa device.</li>
     <li>alexaConfirmationLevel<br>
@@ -1348,7 +1367,7 @@ alexa_Attr($$$)
     "runtime": {
       "requires": {
         "FHEM": 5.00918799,
-        "perl": 5.014, 
+        "perl": 5.014,
         "Meta": 0,
         "CoProcess": 0,
         "JSON": 0,

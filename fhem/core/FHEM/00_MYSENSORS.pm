@@ -21,7 +21,7 @@
 #     You should have received a copy of the GNU General Public License
 #     along with fhem.  If not, see <http://www.gnu.org/licenses/>.
 #
-# $Id: 00_MYSENSORS.pm 19314 2019-05-03 05:02:58Z Beta-User $
+# $Id: 00_MYSENSORS.pm 21300 2020-02-28 07:24:35Z Beta-User $
 #
 ##############################################
 
@@ -423,6 +423,11 @@ sub onInternalMsg($$) {
         }
         last;
       };
+      $type == I_TIME and do {
+        if (my $client = matchClient($hash,$msg)){ MYSENSORS::DEVICE::onInternalMessage($client,$msg) }
+        last;
+      };
+
     }
   } elsif (my $client = matchClient($hash,$msg)) {
     MYSENSORS::DEVICE::onInternalMessage($client,$msg);
@@ -555,7 +560,7 @@ sub sendMessage($%) {
 sub _scheduleTimer($) {
   my ($hash) = @_;
   $hash->{outstandingAck} = 0;
-  RemoveInternalTimer($hash);
+  RemoveInternalTimer($hash,"MYSENSORS::Timer");
   my $next;
   foreach my $radioid (keys %{$hash->{messagesForRadioId}}) {
     my $msgsForId = $hash->{messagesForRadioId}->{$radioid};

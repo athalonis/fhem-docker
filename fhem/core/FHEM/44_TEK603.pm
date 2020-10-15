@@ -1,10 +1,10 @@
-# $Id: 44_TEK603.pm 17651 2018-10-31 12:05:23Z eisler $
+# $Id: 44_TEK603.pm 21403 2020-03-09 21:22:09Z eisler $
 ####################################################################################################
 #
 #	44_TEK603.pm
 #
 #	Copyright: Stephan Eisler
-#	Email: fhem.dev@hausautomatisierung.co
+#	Email: stephan@eisler.de 
 #
 #	This file is part of fhem.
 #
@@ -49,7 +49,7 @@ sub TEK603_Initialize($) {
 	$hash->{DefFn}		= 'TEK603_define';
 	$hash->{UndefFn}	= 'TEK603_undef';
 
-	$hash->{AttrList}	= 'do_not_notify:0,1 dummy:1,0 loglevel:0,1,2,3,4,5,6 ' .
+	$hash->{AttrList}	= 'do_not_notify:0,1 dummy:1,0 disable:1,0 loglevel:0,1,2,3,4,5,6 ' .
 				   $readingFnAttributes;
 }
 
@@ -65,7 +65,7 @@ sub TEK603_define($$) {
 	my $msg = '';
 
 	if( @a != 3) {
-		$msg = 'wrong syntax: define <name> TEK603 {none | devicename}';
+		$msg = 'wrong syntax: define <name> TEK603 {none | devicename | hostname:port}';
 		Log3 $name, 3, $msg;
 		return $msg;
 	}
@@ -92,21 +92,27 @@ sub TEK603_doInit($) {
 	my $dev = $hash->{DeviceName};
 	my $name = $hash->{NAME};
 
-	# Parameter 115200, 8, 1, even, none
-	$po->reset_error();
-	$po->baudrate(115200);
-	$po->databits(8);
-	$po->stopbits(1);
-	$po->parity('none');
-	$po->handshake('none');
-	$po->dtr_active(1);
-	$po->rts_active(1);
+	return if (IsDisabled($name));
 
-	if (!$po->write_settings) {
-		undef $po;
-		$hash->{STATE} = $name . 'Error on write serial line settings on device ' . $dev;
-		Log3 $name, 3, $hash->{STATE};
-		return $hash->{STATE} . "\n";
+	# Wenn / enthalten ist ist es kein ser2net-Device, daher initialisieren
+	if ($dev =~ m/\//)
+	{
+		# Parameter 115200, 8, 1, even, none
+		$po->reset_error();
+		$po->baudrate(115200);
+		$po->databits(8);
+		$po->stopbits(1);
+		$po->parity('none');
+		$po->handshake('none');
+		$po->dtr_active(1);
+		$po->rts_active(1);
+
+		if (!$po->write_settings) {
+			undef $po;
+			$hash->{STATE} = $name . 'Error on write serial line settings on device ' . $dev;
+			Log3 $name, 3, $hash->{STATE};
+			return $hash->{STATE} . "\n";
+		}
 	}
 
 	Log3 $name, 3, "connected to device $dev";
@@ -135,7 +141,8 @@ sub TEK603_undef($$) {
 
 sub TEK603_ready($) {
 	my ($hash) = @_;
-
+	my $name = $hash->{NAME};
+	return if (IsDisabled($name));
 	return DevIo_OpenDev($hash, 1, 'TEK603_doInit') if($hash->{STATE} eq 'disconnected');
 
 	# This is relevant for windows/USB only
@@ -147,6 +154,7 @@ sub TEK603_ready($) {
 sub TEK603_read($) {
 	my ($hash) = @_;
 	my $name = $hash->{NAME};
+	return if (IsDisabled($name));
 
 	my $buf = DevIo_SimpleRead($hash);
 	return '' if(!defined($buf));
@@ -242,6 +250,17 @@ sub TEK603_reconnect($) {
     Examples:
     <ul>
       <code>define OelTank TEK603 /dev/ttyUSB0</code><br />
+    </ul>
+    <br />
+    <br />
+    <code>define &lt;name&gt; TEK603 hostnameorip:port</code><br />
+    <br />
+
+    Defines an TEK603 Eco Monitor device via ethernet on a remote host running ser2net.<br /><br />
+
+    Examples:
+    <ul>
+      <code>define OelTank TEK603 somehost:23000</code><br />
     </ul>
   </ul><br />
 

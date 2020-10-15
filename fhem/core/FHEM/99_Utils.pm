@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 99_Utils.pm 18920 2019-03-16 09:58:52Z rudolfkoenig $
+# $Id: 99_Utils.pm 21112 2020-02-04 10:02:12Z rudolfkoenig $
 package main;
 
 use strict;
@@ -264,6 +264,47 @@ sortTopicNum(@)
   return @sorted;
 }
 
+sub
+Svn_GetFile($$;$)
+{
+  my ($from, $to, $finishFn) = @_;
+  require HttpUtils;
+  return "Missing argument from or to" if(!$from || !$to);
+  return "Forbidden characters in from/to"
+                  if($from =~ m/\.\./ || $to =~ m/\.\./ || $to =~ m,^/,);
+  HttpUtils_NonblockingGet({
+    url=>"https://svn.fhem.de/trac/browser/trunk/fhem/$from?format=txt",
+    callback=>sub($$$){ 
+      if($_[1]) {
+        Log 1, "ERROR Svn_GetFile $from: $_[1]";
+        return;
+      }
+      if(!open(FH,">$to")) {
+        Log 1, "ERROR Svn_GetFile $to: $!";
+        return;
+      }
+      print FH $_[2];
+      close(FH);
+      Log 1, "SVN download of $from to $to finished";
+      &$finishFn if($finishFn);
+      Log 1, $@ if($@);
+    }});
+  return "Download started, check the FHEM-log";
+}
+
+sub
+WriteFile($$)
+{
+  my ($filename, $data) = @_;
+  return "Forbidden characters in filename"
+        if($filename =~ m/\.\./ || $filename =~ m,^/,);
+  if(!open(FH,">$filename")) {
+    Log 1, "ERROR WriteFile $filename: $!";
+    return;
+  }
+  print FH $data;
+  close(FH);
+}
 
 1;
 
@@ -356,6 +397,27 @@ sortTopicNum(@)
     <li><b>sortTopicNum("asc"|"desc",&lt;list of numbers&gt;)</b><br>
       sort an array of numbers like x.x.x<br>
       (Forum #98578)
+      </li></br>
+
+    <li><b>Svn_GetFile(from, to, [finishFn])</b><br>
+      Retrieve a file diretly from the fhem.de SVN server.<br>
+      If the third (optional) parameter is set, it must be a function, which is
+      executed after the file is saved.
+      Example:
+      <ul>
+        <code>{ Svn_GetFile("contrib/86_FS10.pm", "FHEM/86_FS10.pm") }</code>
+        <code>{ Svn_GetFile("contrib/86_FS10.pm", "FHEM/86_FS10.pm", sub(){CommandReload(undef, "86_FS10")}) }</code>
+      </ul>
+      </li></br>
+
+    <li><b>WriteFile(file, content)</b><br>
+      Write a file in/below the curent directory.
+      Example:
+      <ul>
+        attr m2d readingList map:.* { WriteFile("www/images/map.png",$EVENT);; {map=>"images/map.png"} }
+        attr m2d devStateIcon { '<img src="fhem/images/map.png" style="max-width:256;;max-height:256;;">' }
+
+      </ul>
       </li></br>
 
   </ul>

@@ -1,7 +1,7 @@
 ##############################################
 ##############################################
 # CUL HomeMatic handler
-# $Id: 10_CUL_HM.pm 19889 2019-07-23 05:59:50Z martinp876 $
+# $Id: 10_CUL_HM.pm 21093 2020-02-02 13:51:56Z martinp876 $
 
 package main;
 
@@ -694,7 +694,6 @@ sub CUL_HM_Attr(@) {#################################
   return $chk if ($chk);
   
   my $updtReq = 0;
-
   if   ($attrName eq "expert"){#[0,1,2]
     $attr{$name}{$attrName} = $attrVal;
     CUL_HM_chgExpLvl($_) foreach ((map{CUL_HM_id2Hash($_)} CUL_HM_getAssChnIds($name)),$defs{$name});
@@ -713,6 +712,7 @@ sub CUL_HM_Attr(@) {#################################
       else{
         return "attribut not allowed for channels"
                       if (!$hash->{helper}{role}{dev});
+        return if (!$init_done); # will do at updateConfig
         CUL_HM_ActAdd(CUL_HM_name2Id($name),$attrVal);
       }
     }
@@ -3071,7 +3071,20 @@ sub CUL_HM_parseCommon(@){#####################################################
                              $devHlpr->{HM_CMDNR} < 250 && 
                              $devHlpr->{HM_CMDNR} > 5);# this is power on
   $devHlpr->{HM_CMDNR} = hex($mhp->{mNo});# sync msgNo prior to any sending
-  if($rxt & 0x08){ #wakeup device
+  if($rxt & 0x10){             # lazy config
+    if($mhp->{mFlgH} & 0x02    # wakeup message
+       && $devHlpr->{prt}{sleeping}
+       && (   $defs{$mhp->{devH}{IODev}{NAME}}{helper}{VTS_LZYCFG} # for TSCUL VTS0.34 up
+           || $defs{$mhp->{devH}{IODev}{NAME}}{TYPE} =~ m/^(?:HMLAN|HMUARTLGW)$/s )){
+      CUL_HM_appFromQ($mhp->{devN},"cf");# stack cmds if waiting
+      $devHlpr->{prt}{sleeping} = 0;
+      CUL_HM_ProcessCmdStack($mhp->{devH});
+    }
+    else{
+      $devHlpr->{prt}{sleeping} = 1 if (!$devHlpr->{prt}{sProc}); # set back to sleeping with next trigger, if nothing to do
+    }
+  }  
+  elsif($rxt & 0x08){ #wakeup device
     if(($mhp->{mFlgH} & 0xA2) == 0x82){ #wakeup signal
       CUL_HM_appFromQ($mhp->{devN},"wu");# stack cmds if waiting
       if ($mhp->{devH}{cmdStack}){
@@ -3084,18 +3097,6 @@ sub CUL_HM_parseCommon(@){#####################################################
       $devHlpr->{prt}{sleeping} = 1 if($mhp->{mFlgH} & 0x20) ;
     }
   }
-  if($rxt & 0x10 && $devHlpr->{prt}{sleeping}){ # lazy config
-    if($mhp->{mFlgH} & 0x02                  #wakeup device
-       && $defs{$mhp->{devH}{IODev}{NAME}}{TYPE} =~ m/^(HMLAN|HMUARTLGW)$/){
-      $devHlpr->{io}{newCh} = 1 if ($devHlpr->{prt}{sProc} == 2);
-      CUL_HM_appFromQ($mhp->{devN},"cf");# stack cmds if waiting
-      $devHlpr->{prt}{sleeping} = 0;
-      CUL_HM_ProcessCmdStack($mhp->{devH});
-    }
-    else{
-      $devHlpr->{prt}{sleeping} = 1;
-    }
-  }  
   
   my $repeat;
   $devHlpr->{supp_Pair_Rep} = 0 if ($mhp->{mTp} ne "00"); # noansi: reset pairing suppress flag as we got something different from device 
@@ -3815,7 +3816,7 @@ sub CUL_HM_Get($@) {#+++++++++++++++++ get command+++++++++++++++++++++++++++++
 
   my $devName = InternalVal($name,"device",$name);
   my $st      = defined $defs{$devName}{helper}{mId} ? $culHmModel->{$defs{$devName}{helper}{mId}}{st}   : AttrVal($devName, "subType", "");
-  my $md      = defined $defs{$devName}{helper}{mId} ? $culHmModel->{$defs{$devName}{helper}{mId}}{name} : AttrVal($devName, "model"  , "");
+  my $md      = CUL_HM_getAliasModel($hash);
 
   my $cmd   = $a[1];
   
@@ -3931,12 +3932,13 @@ sub CUL_HM_Get($@) {#+++++++++++++++++ get command+++++++++++++++++++++++++++++
         }
       }
       my $addInfo = "";
-      if    ($md =~ m/^(HM-CC-TC|ROTO_ZEL-STG-RM-FWT)/ && $chn eq "02"){$addInfo = CUL_HM_TCtempReadings($hash)}
+      if    ($md =~ m/^(HM-CC-TC|ROTO_ZEL-STG-RM-FWT)/ && $chn eq "02")
+                                                    {$addInfo = CUL_HM_TCtempReadings($hash)}
       elsif ($md =~ m/^HM-CC-RT-DN/ && $chn eq "04"){$addInfo = CUL_HM_TCITRTtempReadings($hash,$md,7)}
       elsif ($md =~ m/^HM-TC-IT/    && $chn eq "02"){$addInfo = CUL_HM_TCITRTtempReadings($hash,$md,7,8,9)}
-      elsif ($md =~ m/^(^HM-PB-4DIS-WM|HM-DIS-WM55|HM-RC-DIS-H-X-EU|ROTO_ZEL-STG-RM-DWT-10)/)
-                                                   {$addInfo = CUL_HM_4DisText($hash)}
-      elsif ($md eq "HM-SYS-SRP-PL")               {$addInfo = CUL_HM_repReadings($hash)}
+      elsif (ReadingsVal($name,".RegL_01.",ReadingsVal($name,"RegL_01.","")) =~ m / 36:/){#add text
+                                                    $addInfo = CUL_HM_4DisText($hash)}
+      elsif ($md eq "HM-SYS-SRP-PL")                {$addInfo = CUL_HM_repReadings($hash)}
 
       return $name." type:".$st." - \n".
              $regHeader.join("",sort(@regValList)).
@@ -3988,6 +3990,41 @@ sub CUL_HM_Get($@) {#+++++++++++++++++ get command+++++++++++++++++++++++++++++
     $info .= join("\n",sort @arr);
     $info .= "\n\n Sets ------\n";
     $info .= join("\n",sort @arr1);
+    my $a = CUL_HMTmplSetCmd($name)." ";
+    $a =~ s/:.*? /:\[template\]\n/g;
+    $info .= $a;
+    $info .= join("\n",split(" ",CUL_HMTmplSetParam($name)));
+    return $info;
+  }
+  elsif($cmd eq "tplInfo"){  ##################################################
+    my $info;
+    my @tplCmd = split(" ",CUL_HMTmplSetCmd($name));
+    my %tplH;
+    my %tplTyp = (dev  =>"device templates"
+                 ,ls   =>"templates for peerings serving short OR long press"
+                 ,both =>"templates for peerings serving short AND long press"
+    );
+    foreach my $tplSet (split(" ",CUL_HMTmplSetCmd($name))){
+      my ($tplDst,$tplOpt) = split(":",$tplSet);
+      my @tplLst = sort split(",",$tplOpt);
+      if ($tplDst eq "tplSet_0"){#none peer template
+        @{$tplH{dev}} = @tplLst;
+      }
+      else{
+        @{$tplH{both}} = grep!/(.*)_(short|long)/,@tplLst;
+        @{$tplH{ls}}   = map{(my $foo = $_) =~ s/_(short|long)//; $foo;}
+                         grep/(.*)_(short|long)/,@tplLst;
+      }
+    }
+    foreach my $tt (sort keys %tplTyp){
+      if (defined $tplH{$tt}){
+        $info .= "\n$tplTyp{$tt}:";
+        foreach (@{$tplH{$tt}}){
+          my ($r)=split("\n",HMinfo_templateList($_));
+          $info .= "\n   ".$r;
+        }
+      }
+    }
     return $info;
   }
   elsif($cmd eq "saveConfig"){  ###############################################
@@ -4714,9 +4751,9 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
     }
 
     my (undef,undef,$regName,$data,$peerChnIn) = @a;
-
     $state = "";
-    my @regArr = CUL_HM_getRegN($st,$md,($roleD?"00":""),($roleC?$chn:""));
+    my $mdAl  = CUL_HM_getAliasModel($hash);
+    my @regArr = CUL_HM_getRegN($st,$mdAl,($roleD?"00":""),($roleC?$chn:""));
     
     return "$regName failed: supported register are ".join(" ",sort @regArr)
             if (!grep /^$regName$/,@regArr );
@@ -4776,7 +4813,7 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
     my ($lChn,$peerId,$peerChn) = ($chn,"000000","00");
 #    if (($list == 3) ||($list == 4)   # peer is necessary for list 3/4
     if ($reg->{p} eq 'y'              # peer is necessary 
-        ||($peerChnIn))              {# and if requested by user
+        ||(defined $peerChnIn and $peerChnIn))   {# and if requested by user
       return "Peer not specified" if ($peerChnIn eq "");
       $peerId  = CUL_HM_peerChId($peerChnIn,$dst);
       ($peerId,$peerChn) = unpack 'A6A2',$peerId.'01';
@@ -4795,9 +4832,9 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
     my $addrData;
     if ($dLen < 8){# fractional byte see whether we have stored the register
       #read full 8 bit!!!
-      my $rName = CUL_HM_id2Name($dst.$lChn);
-      $rName =~ s/_chn-\d\d$//;
-      my $curVal = CUL_HM_getRegFromStore($rName,$addr,$list,$peerId.$peerChn);
+      my $cName = CUL_HM_id2Name($dst.$lChn);
+      $cName =~ s/_chn-\d\d$//;
+      my $curVal = CUL_HM_getRegFromStore($cName,$addr,$list,$peerId.$peerChn);
       if ($curVal !~ m/^(set_|)(\d+)$/){
 	    return "peer required for $regName" if ($curVal =~ m/peer/);
         return "cannot calculate value. Please issue set $name getConfig first - $curVal";
@@ -6325,7 +6362,7 @@ sub CUL_HM_Set($@) {#+++++++++++++++++ set command+++++++++++++++++++++++++++++
     #peerSmart <peer>  
     $state = "";
     my $set  = $a[2] =~ s/^remove_// ? 0    : 1;
-    my $cmdB = $set                ? "01" : "02";
+    my $cmdB = $set                  ? "01" : "02";
     my %PInfo;
     my $pCnt = 0;
     my $ret;
@@ -7872,6 +7909,13 @@ sub CUL_HM_getmIdFromModel($){ # enter model and receive the corresponding ID
   }
   return $mId;
 }
+sub CUL_HM_getAliasModel($){ # 
+  my $hash = shift;
+  my $dHash = CUL_HM_getDeviceHash($hash);
+  return "" if(!defined $dHash || !defined $dHash->{helper}|| !defined $dHash->{helper}{mId});
+  return $culHmModel->{$dHash->{helper}{mId}}{name};
+}
+
 sub CUL_HM_getRxType($) {      #in:hash(chn or dev) out:binary coded Rx type
  # Will store result in device helper
   my ($hash) = @_;
@@ -8189,27 +8233,27 @@ sub CUL_HM_DumpProtocol($$@) {
 sub CUL_HM_getRegFromStore($$$$@) {#read a register from backup data
   my($name,$regName,$list,$peerId,$regLN)=@_;
   my $hash = $defs{$name};
-  my ($size,$pos,$conv,$factor,$unit) = (8,0,"",1,""); # default
+  my ($size,$pos,$conv,$factor,$unit,$peerRq) = (8,0,"",1,"","n"); # default
   my $addr = $regName;
   my $reg = $culHmRegDefine->{$regName};
   if ($reg) { # get the register's information
-    $addr = $reg->{a};
-    $pos = ($addr*10)%10;
-    $addr = int($addr);
-    $list = $reg->{l};
-    $size = $reg->{s};
-    $size = int($size)*8 + ($size*10)%10;
-    $conv = $reg->{c}; #unconvert formula
+    $addr   = $reg->{a};
+    $pos    = ($addr*10)%10;
+    $addr   = int($addr);
+    $size   = $reg->{s};
+    $size   = int($size)*8 + ($size*10)%10;
+    $list   = $reg->{l};
+    $conv   = $reg->{c}; #unconvert formula
     $factor = $reg->{f};
-    $unit = ($reg->{u}?" ".$reg->{u}:"");
+    $peerRq = $reg->{p};
+    $unit   = ($reg->{u} ? " ".$reg->{u} : "");
   }
   else{
-    return "invalid:regname or address"
-            if($addr<1 ||$addr>255);
+    return "invalid:regname or address" if($addr < 1 ||$addr > 255);
+    $peerRq = hex($peerId) != 0 ? "y":"n";
   }
-
-  return "invalid:no peer for this register" if(($reg->{p} eq "n" && hex($peerId) != 0)
-                                              ||($reg->{p} eq "y" && hex($peerId) == 0));
+  return "invalid:no peer for this register" if((hex($peerId) != 0 && $peerRq eq "n" )
+                                              ||(hex($peerId) == 0 && $peerRq eq "y"));
   my $dst = substr(CUL_HM_name2Id($name),0,6);
   if(!$regLN){
     $regLN = ($hash->{helper}{expert}{raw}?"":".")
@@ -8256,7 +8300,7 @@ sub CUL_HM_getRegFromStore($$$$@) {#read a register from backup data
 
   $data = ($data>>$pos) & (0xffffffff>>(32-$size));
   if (!$conv){                ;# do nothing
-  } elsif($conv eq "lit"     ){$data = defined $reg->{litInv}{$data}?$reg->{litInv}{$data}:"undef lit:$data";
+  } elsif($conv eq "lit"     ){$data = defined $reg->{litInv}{$data} ? $reg->{litInv}{$data} : "undef lit:$data";
   } elsif($conv eq "fltCvT"  ){$data = CUL_HM_CvTflt($data);
   } elsif($conv eq "fltCvT60"){$data = CUL_HM_CvTflt60($data);
   } elsif($conv eq "min2time"){$data = CUL_HM_min2time($data);
@@ -8397,7 +8441,7 @@ sub CUL_HM_setTmplDisp($){ # remove register if outdated
 }
 sub CUL_HM_updtRegDisp($$$) {
   my($hash,$list,$peerId)=@_;
-  my $listNo = $list+0;
+  my $listNo = $list + 0;
   my $name = $hash->{NAME};
   my $devId = substr(CUL_HM_name2Id($name),0,6);
   my $ioId = CUL_HM_IoId(CUL_HM_id2Hash($devId));
@@ -8408,7 +8452,7 @@ sub CUL_HM_updtRegDisp($$$) {
   $pReg = "R-".$pReg;
   my $devName =CUL_HM_getDeviceHash($hash)->{NAME};# devName as protocol entity
   my $st = $attr{$devName}{subType} ?$attr{$devName}{subType} :"";
-  my $md = $attr{$devName}{model}   ?$attr{$devName}{model}   :"";
+  my $md = CUL_HM_getAliasModel($hash);
   my $chn = $hash->{DEF};
   $chn = (length($chn) == 8)?substr($chn,6,2):"";
   my @regArr = CUL_HM_getRegN($st,$md,$chn);
@@ -8443,8 +8487,8 @@ sub CUL_HM_updtRegDisp($$$) {
   elsif ($md =~ m/^HM-TC-IT-WM-W-EU/){#handle temperature readings
     CUL_HM_TCITRTtempReadings($hash,$md,$list)  if ($list >= 7 && $chn eq "02");
   }
-  elsif ($md =~ m/(^HM-PB-4DIS-WM|HM-DIS-WM55|HM-DIS-EP-WM55|HM-RC-DIS-H-X-EU|ROTO_ZEL-STG-RM-DWT-10)/){#add text
-   CUL_HM_4DisText($hash)  if ($list == 1) ;
+  elsif (ReadingsVal($name,".RegL_01.",ReadingsVal($name,"RegL_01.","")) =~ m / 36:/){#add text
+    CUL_HM_4DisText($hash)  if ($list == 1) ;
   }
   elsif ($st eq "repeater"){
     CUL_HM_repReadings($hash) if ($list == 2);
@@ -8660,7 +8704,7 @@ sub CUL_HM_getRegInfo($) { #
   my $hash = $defs{$name};
   my $devHash = CUL_HM_getDeviceHash($hash);
   my $st  = AttrVal    ($devHash->{NAME},"subType", "" );
-  my $md  = AttrVal    ($devHash->{NAME},"model"  , "" );
+  my $md  = CUL_HM_getAliasModel($hash);#AttrVal    ($devHash->{NAME},"model"  , "" );
   my $roleD  = $hash->{helper}{role}{dev};
   my $roleC  = $hash->{helper}{role}{chn};
   my $chn = $roleD ? "00" : InternalVal($hash->{NAME}   ,"chanNo" ,"00");
@@ -8700,6 +8744,7 @@ sub CUL_HM_getRegN($$@){ # get list of register for a model
   my @regArr = keys %{$culHmRegGeneral};
   push @regArr, keys %{$culHmRegType->{$st}}      if($culHmRegType->{$st});
   push @regArr, keys %{$culHmRegModel->{$md}}     if($culHmRegModel->{$md});
+ 
   foreach (@chn){
     push @regArr, keys %{$culHmRegChan->{$md.$_}} if($culHmRegChan->{$md.$_});
   }
@@ -9162,7 +9207,8 @@ sub CUL_HM_dimLog($) {# dimmer readings - support virtual chan - unused so far
 # that period.
 # ActionDetector will use the fixed HMid 000000
 sub CUL_HM_ActGetCreateHash() {# get ActionDetector - create if necessary
-  if (!$modules{CUL_HM}{defptr}{"000000"} && $init_done){
+  return if (!$init_done);
+  if (!$modules{CUL_HM}{defptr}{"000000"}){
     CommandDefine(undef,"ActionDetector CUL_HM 000000");
     $attr{ActionDetector}{actCycle} = 600;
     $attr{ActionDetector}{"event-on-change-reading"} = ".*";
@@ -9196,7 +9242,6 @@ sub CUL_HM_ActAdd($$) {# add an HMid to list for activity supervision
   my ($cycleString,undef)=CUL_HM_time2sec($timeout);
   my $devName = CUL_HM_id2Name($devId);
   my $devHash = $defs{$devName};
-
   $attr{$devName}{actCycle} = $cycleString;
   $attr{$devName}{actStatus}=""; # force trigger
   my $actHash = CUL_HM_ActGetCreateHash();
@@ -10770,6 +10815,14 @@ sub CUL_HM_tempListTmpl(@) { ##################################################
                will be peered/unpeerd to the actor. <a href="CUL_HMpress">press</a> can be
                used to stimulate the related actions as defined in the actor register.
           </li>
+          <li><B>peerSmart [&lt;peer&gt;] </B><a name="CUL_HMpeerSmart"></a><br>
+               The command is similar to <B><a href="#CUL_HMpeerChan">peerChan</a></B>. 
+               peerChan uses only one parameter, the peer which the channel shall be peered to. <br>
+               Therefore peerSmart peers always in single mode (see peerChan). Funktionallity of the peered actor shall be applied 
+               manually by setting register. This is not a big difference to peerChan. <br>
+               Smart register setting could be done using hmTemplate. <br>
+               peerSmart is also available for actor-channel.
+          </li>
           <li><B>peerChan &lt;btn_no&gt; &lt;actChan&gt; [single|<u>dual</u>|reverse][<u>set</u>|unset] [<u>both</u>|actor|remote]</B>
               <a name="CUL_HMpeerChan"></a><br>
           
@@ -12210,7 +12263,15 @@ sub CUL_HM_tempListTmpl(@) { ##################################################
           <li><B>trgPressL [all|&lt;peer&gt;] </B><a name="CUL_HMtrgPressL"></a><br>
                Initiiert ein pressL fuer die peer entity. Wenn <B>all</B> ausgewählt ist wird das Kommando bei jedem der Peers ausgeführt. Siehe auch <a href="CUL_HMpressL">pressL</a><br>
           </li>
-            <li><B>peerChan &lt;btn_no&gt; &lt;actChan&gt; [single|<u>dual</u>|reverse]
+          <li><B>peerSmart [&lt;peer&gt;] </B><a name="CUL_HMpeerSmart"></a><br>
+               Das Kommando ist aehnlich dem <B><a href="#CUL_HMpeerChan">peerChan</a></B>. 
+               peerChan braucht nur einen Parameter, den Peer zu welchem die Beziehung hergestellt werden soll.<br>
+               Daher peert peerSmart immer single mode (siehe peerChan). Die Funktionalitaet des gepeerten Aktors wird über das manuelle 
+               setzen der Register eingestellt. Am Ende ist das kein grosser Unterschied zu peerChan. <br>
+               Smartes Register Setzen kann man mit hmTemplate erreichen. <br>
+               peerSmart ist auch für Aktor Kanäle verfügbar.
+          </li>
+          <li><B>peerChan &lt;btn_no&gt; &lt;actChan&gt; [single|<u>dual</u>|reverse]
               [<u>set</u>|unset] [<u>both</u>|actor|remote]</B><a name="CUL_HMpeerChan"></a><br>
               "peerChan" richtet eine Verbindung zwischen Sender-<B>Kanal</B> und
               Aktor-<B>Kanal</B> ein, bei HM "link" genannt. "Peering" darf dabei nicht

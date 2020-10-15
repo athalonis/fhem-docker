@@ -1,4 +1,4 @@
-# $Id: 31_Aurora.pm 19680 2019-06-21 14:19:10Z justme1968 $
+# $Id: 31_Aurora.pm 21127 2020-02-05 12:20:53Z justme1968 $
 
 package main;
 
@@ -338,6 +338,25 @@ Aurora_SetParam($$@)
 
   $cmd = "off" if($cmd eq "pct" && $value == 0 );
 
+  if( $cmd eq "previousEffect" 
+      || $cmd eq "nextEffect" ) {
+    my $hash = $defs{$name};
+    if( $hash->{helper}{effects} ) {
+      my $count = @{$hash->{helper}{effects}};
+      if( my ($index) = grep { $hash->{helper}{effects}[$_] eq $hash->{helper}{effect} } (0 .. $count-1) ) {
+        if( $cmd eq "nextEffect" ) {
+          $index = 0 if( ++$index > $count-1 );
+        } elsif( $cmd eq "nextEffect" ) {
+          $index = $count-1 if( --$index < 0 );
+        }
+
+        $cmd = 'effect';
+        $value = $hash->{helper}{effects}[$index];
+      }
+
+    }
+  }
+
   if($cmd eq 'on') {
     $obj->{on} = { value => JSON::true };
     $obj->{on}{duration} = $value * 10 if( defined($value) );
@@ -451,6 +470,7 @@ Aurora_SetParam($$@)
     $obj->{'select'} = "$value";
     $obj->{'select'} .= " $value2" if( $value2 );
     $obj->{'select'} .= " ". join(" ", @a) if( @a );
+
   } elsif( $cmd eq "transitiontime" ) {
     $obj->{'transitiontime'} = 0+$value;
   } elsif( $name &&  $cmd eq "delayedUpdate" ) {
@@ -540,13 +560,14 @@ Aurora_Set($@)
     my $effects = join(',',@{$hash->{helper}{effects}});
     $effects =~ s/\s/#/g;
     $list .= " effect:,$effects";
+    $list .= " previousEffect:noArg nextEffect:noArg";
   }
 
   return SetExtensions($hash, $list, $name, @aa);
 }
 
 sub
-cttorgb($)
+Aurora_cttorgb($)
 {
   my ($ct) = @_;
 
@@ -583,7 +604,7 @@ cttorgb($)
 }
 
 sub
-xyYtorgb($$$)
+Aurora_xyYtorgb($$$)
 {
   # calculation from http://www.brucelindbloom.com/index.html
   my ($x,$y,$Y) = @_;
@@ -647,7 +668,7 @@ Aurora_Get($@)
     my $cm = ReadingsVal($name,"colormode","");
     if( $cm eq "ct" ) {
       if( ReadingsVal($name,"ct","") =~ m/(\d+)/ ) {
-        ($r,$g,$b) = cttorgb(1000000/$1);
+        ($r,$g,$b) = Aurora_cttorgb(1000000/$1);
       }
     } else {
       my $h = ReadingsVal($name,"hue",0) / 359.0;
@@ -668,7 +689,7 @@ Aurora_Get($@)
     my $cm = ReadingsVal($name,"colormode","");
     if( $cm eq "ct" ) {
       if( ReadingsVal($name,"ct","") =~ m/(\d+) .*/ ) {
-        ($r,$g,$b) = cttorgb($1);
+        ($r,$g,$b) = Aurora_cttorgb($1);
       }
     } else {
       my $h = ReadingsVal($name,"hue",0) / 359.0;
@@ -814,9 +835,9 @@ Aurora_Parse($$)
   $attr{$name}{devStateIcon} = '{(Aurora_devStateIcon($name),"toggle")}' if( !defined( $attr{$name}{devStateIcon} ) );
 
   if( !defined($attr{$name}{webCmd}) ) {
-    $attr{$name}{webCmd} = 'rgb:rgb ff0000:rgb 00ff00:rgb 0000ff:color 2040:color 2600:color 3700:color 6250:effect:on:off';
+    $attr{$name}{webCmd} = 'rgb:rgb ff0000:rgb 00ff00:rgb 0000ff:ct 490:ct 380:ct 270:ct 160:effect:on:off';
     #$attr{$name}{webCmd} = 'hue:rgb:rgb ff0000:rgb 00ff00:rgb 0000ff:toggle:on:off';
-    #$attr{$name}{webCmd} = 'color 2040:color 2600:color 3700:color 6250:toggle:on:off';
+    #$attr{$name}{webCmd} = 'ct:ct 490:ct 380:ct 270:ct 160:toggle:on:off';
     #$attr{$name}{webCmd} = 'pct:toggle:on:off';
     #$attr{$name}{webCmd} = 'toggle:on:off';
   }
@@ -938,8 +959,6 @@ Aurora_Attr($$$;$)
   <a name="Aurora_Readings"></a>
   <b>Readings</b>
   <ul>
-    <li>bri<br>
-    the brightness reported from the device. the value can be betwen 1 and 254</li>
     <li>colormode<br>
     the current colormode</li>
     <li>ct<br>
@@ -974,8 +993,6 @@ Aurora_Attr($$$;$)
         Note: the FS20 compatible dimXX% commands are also accepted.</li>
       <li>color &lt;value&gt;<br>
         set colortemperature to &lt;value&gt; kelvin.</li>
-      <li>bri &lt;value&gt; [&lt;ramp-time&gt;]<br>
-        set brighness to &lt;value&gt;; range is 0-254.</li>
       <li>dimUp [delta]</li>
       <li>dimDown [delta]</li>
       <li>ct &lt;value&gt; [&lt;ramp-time&gt;]<br>
@@ -991,6 +1008,8 @@ Aurora_Attr($$$;$)
       <li>satUp [delta]</li>
       <li>satDown [delta]</li>
       <li>effect &lt;name&gt;</li>
+      <li>previousEffect</li>
+      <li>nextEffect</li>
       <li>rgb &lt;rrggbb&gt;<br>
         set the color to (the nearest equivalent of) &lt;rrggbb&gt;</li>
       <br>
@@ -1002,7 +1021,7 @@ Aurora_Attr($$$;$)
         <li>multiple paramters can be set at once separated by <code>:</code><br>
           Examples:<br>
             <code>set LC on : transitiontime 100</code><br>
-            <code>set bulb on : bri 100 : color 4000</code><br></li>
+            <code>set bulb on : pct 100 : color 4000</code><br></li>
         </ul>
     </ul><br>
 

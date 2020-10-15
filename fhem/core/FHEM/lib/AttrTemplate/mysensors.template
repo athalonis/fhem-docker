@@ -1,5 +1,5 @@
 ###########################################
-# $Id: $
+# $Id: mysensors.template 21492 2020-03-23 11:34:12Z Beta-User $
 #
 # Comments start with #. Empty lines are ignored.
 # Syntax of one entry: name: line, one optional filter: line, zero or more par: lines,  FHEM-Commands
@@ -70,6 +70,7 @@ desc:Applies to standard relay actuator sketch
 attr DEVICE setCommands on:status1:on off:status1:off
 attr DEVICE setExtensionsEvent 1
 attr DEVICE devStateIcon .*on:on .*off:off on.(for.timer|till.*):on-for-timer:off off.(for.timer|till.*):off-for-timer:on blink.*:light_toggle:off
+set DEVICE attrTemplate speechcontrol_type_switch
 attr DEVICE model A_24a_Relay_Actuator
 
 

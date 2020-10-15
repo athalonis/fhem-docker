@@ -1,5 +1,5 @@
 # Id ##########################################################################
-# $Id: 59_LuftdatenInfo.pm 17548 2018-10-16 19:33:15Z igami $
+# $Id: 59_LuftdatenInfo.pm 21434 2020-03-16 04:17:45Z igami $
 
 # copyright ###################################################################
 #
@@ -245,7 +245,7 @@ sub LuftdatenInfo_Attr(@) {
     }
   }
   elsif($attribute eq "interval"){
-    my $minInterval = $hash->{CONNECTION} eq "local" ? 30 : 300;
+    my $minInterval = $hash->{MODE} eq "local" ? 30 : 300;
     my $interval = $cmd eq "set" ? $value : $minInterval;
     $interval = $minInterval unless(looks_like_number($interval));
     $interval = $minInterval if($interval < $minInterval);

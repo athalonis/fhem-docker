@@ -1,4 +1,4 @@
-# $Id: 98_configdb.pm 18754 2019-02-27 21:26:16Z betateilchen $
+# $Id: 98_configdb.pm 21277 2020-02-25 19:44:21Z betateilchen $
 #
 
 package main;
@@ -165,7 +165,7 @@ sub CommandConfigdb($$) {
 
 		when ('info') {
 			Log3('configdb', 4, "info requested.");
-			$ret = _cfgDB_Info('$Id: 98_configdb.pm 18754 2019-02-27 21:26:16Z betateilchen $');
+			$ret = _cfgDB_Info('$Id: 98_configdb.pm 21277 2020-02-25 19:44:21Z betateilchen $');
 		}
 
 		when ('list') {
@@ -302,13 +302,14 @@ sub _cfgDB_readConfig() {
 			<li>93_DbLog.pm</li>
 			<li>95_holiday.pm</li>
 			<li>98_SVG.pm</li>
+			<li>98_weekprofile.pm</li>
 			<br/>
 			will use configDB to read their configuration data from database<br/> 
 			instead of formerly used configuration files inside the filesystem.<br/>
 			<br/>
 			This requires you to import your configuration files from filesystem into database.<br/>
 			<br/>
-			Example:<br/>
+			Examples:<br/>
 			<code>configdb fileimport FHEM/nrw.holiday</code><br/>
 			<code>configdb fileimport FHEM/myrss.layout</code><br/>
 			<code>configdb fileimport www/gplot/xyz.gplot</code><br/>

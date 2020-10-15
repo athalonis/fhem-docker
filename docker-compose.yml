@@ -22,12 +22,13 @@ services:
             - "mysql"
             - "mqtt"
 
-    habridge:
-        restart: always
-        build: habridge
-        network_mode: host
-        volumes:
-            - ./habridge/data/:/opt/habridge/data/
+#    habridge:
+#        restart: always
+#        #build: habridge
+#        image: habridge/ha-bridge-raspberrypi3
+#        network_mode: host
+#        volumes:
+#            - ./habridge/data/:/opt/habridge/data/
 
     mysql:
         restart: always
@@ -37,9 +38,9 @@ services:
         ports:
             - "3306:3306"
             - "33060:33060"
-        image: mysql/mysql-server:5.7
+        image: linuxserver/mariadb
         volumes:
-            - ./mysql/init.sql:/docker-entrypoint-initdb.d/fhem-init.sql
+            - ./mysql/config:/config
             - ./mysql/data:/var/lib/mysql
         environment:
             - MYSQL_RANDOM_ROOT_PASSWORD=yes
@@ -54,28 +55,37 @@ services:
         ports:
             - "1883:1883"
             - "9001:9001"
-        image: toke/mosquitto
+        image: eclipse-mosquitto
         networks:
             - fhem-network
         volumes:
-            - ./mqtt/config/:/mqtt/config/
-            - ./mqtt/log/:/mqtt/log/
-            - ./mqtt/data/:/mqtt/data/
+            - ./mqtt/config/:/mosquitto/config/
+            - ./mqtt/log/:/mosquitto/log/
+            - ./mqtt/data/:/mosquitto/data/
+       
+              #    nodered:
+              #        restart: always
+              #        expose:
+              #            - "1880"
+              #        ports:
+              #            - "1880:1880"
+              #        image: nodered/node-red-docker:0.20.7
+              #        user: "1000:1000"
+              #        volumes:
+              #            - ./nodered/data/:/data/
+              #        networks:
+              #            - fhem-network
+              #        depends_on:
+              #            - "mqtt"
 
-    nodered:
+    hmcfgusb:
         restart: always
-        expose:
-            - "1880"
-        ports:
-            - "1880:1880"
-        image: nodered/node-red-docker:0.20.7
-        user: "1000:1000"
+        build: hmcfgusb
+        privileged: true
         volumes:
-            - ./nodered/data/:/data/
+            - /dev/bus/usb:/dev/bus/usb
         networks:
             - fhem-network
-        depends_on:
-            - "mqtt"
 
 networks:
     fhem-network:

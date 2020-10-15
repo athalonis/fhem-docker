@@ -1,4 +1,4 @@
-# $Id: 74_UnifiVideo.pm 19679 2019-06-21 14:14:29Z justme1968 $
+# $Id: 74_UnifiVideo.pm 21271 2020-02-24 19:54:43Z justme1968 $
 
 package main;
 
@@ -645,7 +645,7 @@ UnifiVideo_Attr($$$)
   <ul>
     <li>snapshot cam=&lt;cam&gt; width=&lt;width&gt; fileName=&lt;fileName&gt;<br>
       takes a snapshot from &lt;cam&gt; with optional &lt;width&gt; and stores it with the optional &lt;fileName&gt;<br>
-      &lt;cam&gt; can be the number of the cammera, its id or a regex that is matched against the name.
+      &lt;cam&gt; can be the number of the camera, its id or a regex that is matched against the name.
       </li>
     <li>reconnect<br>
       </li>

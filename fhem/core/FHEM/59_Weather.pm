@@ -1,4 +1,4 @@
-# $Id: 59_Weather.pm 19628 2019-06-15 07:49:18Z CoolTux $
+# $Id: 59_Weather.pm 21117 2020-02-04 13:11:42Z CoolTux $
 ##############################################################################
 #
 #     59_Weather.pm
@@ -32,7 +32,8 @@ package main;
 use strict;
 use warnings;
 use Time::HiRes qw(gettimeofday);
-use HttpUtils;
+#use HttpUtils;
+use FHEM::Meta;
 use vars qw($FW_ss);
 
 # use Data::Dumper;    # for Debug only
@@ -273,7 +274,7 @@ sub Weather_Initialize($) {
       . $readingFnAttributes;
     $hash->{NotifyFn} = 'Weather_Notify';
 
-    #Weather_DebugCodes('de');
+    return FHEM::Meta::InitMod( __FILE__, $hash );
 }
 
 ###################################
@@ -310,6 +311,10 @@ sub Weather_ReturnWithError($$) {
 
 sub Weather_RetrieveCallbackFn($) {
     my $name        = shift;
+    
+    return undef
+      unless ( IsDevice($name) );
+
     my $hash        = $defs{$name};
     my $responseRef = $hash->{fhem}->{api}->getWeather;
 
@@ -567,8 +572,30 @@ sub Weather_Set($@) {
         Weather_GetUpdate($hash);
         return undef;
     }
+    elsif ( ( @a >= 2 ) && ( $a[1] eq "newLocation" ) ) {
+        if (   $hash->{API} eq 'DarkSkyAPI'
+            or $hash->{API} eq 'OpenWeatherMapAPI'
+            or $hash->{API} eq 'wundergroundAPI'
+          )
+        {
+            my ($lat,$long);
+            ($lat,$long) = split(',',$a[2])
+              if ( defined($a[2]) and $a[2] );
+            ($lat,$long) = split(',',$hash->{fhem}->{LOCATION})
+              unless ( defined($lat)
+                and defined($long)
+                and $lat =~ /(-?\d+(\.\d+)?)/
+                and $long =~ /(-?\d+(\.\d+)?)/ );
+
+            $hash->{fhem}->{api}->setLocation($lat,$long);
+            Weather_DisarmTimer($hash);
+            Weather_GetUpdate($hash);
+            return undef;
+        }
+        else { return 'this API is not ' . $a[1] .' supported' }
+    }
     else {
-        return "Unknown argument $cmd, choose one of update:noArg";
+        return "Unknown argument $cmd, choose one of update:noArg newLocation";
     }
 }
 
@@ -619,6 +646,9 @@ sub Weather_Notify($$) {
 sub Weather_Define($$) {
     my ( $hash, $def ) = @_;
 
+    return $@ unless ( FHEM::Meta::SetInternals($hash) );
+    use version 0.60; our $VERSION = FHEM::Meta::Get( $hash, 'version' );
+
     my $usage =
 "syntax: define <name> Weather [API=<API>] [apikey=<apikey>] [location=<location>] [interval=<interval>] [lang=<lang>]";
 
@@ -649,7 +679,7 @@ sub Weather_Define($$) {
 
     $hash->{NOTIFYDEV}          = "global";
     $hash->{fhem}->{interfaces} = "temperature;humidity;wind";
-    $hash->{LOCATION}           = (
+    $hash->{fhem}->{LOCATION}   = (
         ( defined($location) and $location )
         ? $location
         : AttrVal( 'global', 'latitude', 'error' ) . ','
@@ -665,9 +695,11 @@ sub Weather_Define($$) {
     $hash->{MODEL}                                 = $api;
     $hash->{APIKEY}                                = $apikey;
     $hash->{APIOPTIONS}                            = $apioptions;
-    $hash->{READINGS}->{current_date_time}->{TIME} = TimeNow();
-    $hash->{READINGS}->{current_date_time}->{VAL}  = "none";
+    $hash->{VERSION}                               = version->parse($VERSION)->normal;
     $hash->{fhem}->{allowCache}                    = 1;
+
+    readingsSingleUpdate($hash,'current_date_time',TimeNow(),0);
+    readingsSingleUpdate($hash,'current_date_time','none',0);
 
     readingsSingleUpdate( $hash, 'state', 'Initialized', 1 );
     Weather_LanguageInitialize( $hash->{LANG} );
@@ -677,7 +709,7 @@ sub Weather_Define($$) {
         {
             devName    => $hash->{NAME},
             apikey     => $hash->{APIKEY},
-            location   => $hash->{LOCATION},
+            location   => $hash->{fhem}->{LOCATION},
             apioptions => $hash->{APIOPTIONS},
             language   => $hash->{LANG}
         }
@@ -946,6 +978,7 @@ sub WeatherCheckOptions($@) {
   <ul>
     <li>DarkSky (<a href="https://darksky.net">web site</a>, standard)</li>
     <li>OpenWeatherMap (<a href="https://openweathermap.org/">web site)</a></li>
+    <li>Wunderground (<a href="https://www.wunderground.com/member/api-keys">web site)</a></li>
   </ul>
   <br>
   Such a virtual Weather device periodically gathers current and forecast
@@ -960,7 +993,7 @@ sub WeatherCheckOptions($@) {
 
        The parameters have the following meanings:<br>
 
-       <table border="1">
+       <table>
        <tr><td><code>API</code></td><td>name of the weather API, e.g. <code>DarkSkyAPI</code></td></tr>
        <tr><td><code>apioptions</code></td><td>indivual options for the chosen API</td></tr>
        <tr><td><code>apikey</code></td><td>key for the chosen API</td></tr>
@@ -969,7 +1002,7 @@ sub WeatherCheckOptions($@) {
        <tr><td><code>interval</code></td><td>duration in seconds between updates</td></tr>
        <tr><td><code>lang</code></td><td>language of the forecast: <code>de</code>,
          <code>en</code>, <code>pl</code>, <code>fr</code>, <code>it</code> or <code>nl</code></td></tr>
-       <table/>
+       </table>
        <p>
 
     A very simple definition is:<br><br>
@@ -981,6 +1014,7 @@ sub WeatherCheckOptions($@) {
     <pre>
       define Forecast Weather apikey=987498ghjgf864
       define MyWeather Weather API=OpenWeatherMapAPI,cachemaxage:600 apikey=09878945fdskv876 location=52.4545,13.4545 interval=3600 lang=de
+      define <name> Weather API=wundergroundAPI,stationId:IHAUIDELB111 apikey=ed64ccc80f004556a4e3456567800b6324a
     </pre>
 
 
@@ -988,7 +1022,7 @@ sub WeatherCheckOptions($@) {
 
         <b>Dark Sky</b><p>
 
-        <table border="1">
+        <table>
         <tr><td>API</td><td><code>DarkSkyAPI</code></td></tr>
         <tr><td>apioptions</td><td><code>cachemaxage=&lt;cachemaxage&gt;</code><br>duration
           in seconds to retrieve the forecast from the cache instead from the API<br><code>extend=hourly</code>
@@ -997,12 +1031,12 @@ sub WeatherCheckOptions($@) {
           geographic coordinates in degrees of the location for which the
           weather is forecast; if missing, the values of the attributes
           of the <code>global</code> device are taken, if these exist.</td></tr>
-        <table/>
+        </table>
         <p><p>
 
         <b>OpenWeatherMap</b><p>
 
-        <table border="1">
+        <table>
         <tr><td>API</td><td><code>OpenWeatherMapAPI</code></td></tr>
         <tr><td>apioptions</td><td><code>cachemaxage=&lt;cachemaxage&gt;</code><br>duration
           in seconds to retrieve the forecast from the cache instead from the API</td></tr>
@@ -1010,7 +1044,21 @@ sub WeatherCheckOptions($@) {
           geographic coordinates in degrees of the location for which the
           weather is forecast; if missing, the values of the attributes
           of the <code>global</code> device are taken, if these exist.</td></tr>
-        <table/>
+        </table>
+        <p><p>
+        
+        <b>Wunderground</b><p>
+
+        <table>
+        <tr><td>API</td><td><code>wundergroundAPI</code></td></tr>
+        <tr><td>apioptions</td><td><code>cachemaxage=&lt;cachemaxage&gt;</code><br>duration
+          in seconds to retrieve the forecast from the cache instead from the API<br><code>stationId:ID-Num</code>
+      <br>Station ID of the station to be read.</td></tr>
+        <tr><td>location</td><td><code>&lt;latitude,longitude&gt;</code><br>
+          geographic coordinates in degrees of the location for which the
+          weather is forecast; if missing, the values of the attributes
+          of the <code>global</code> device are taken, if these exist.</td></tr>
+        </table>
         <p><p>
 
     The module provides four additional functions <code>WeatherAsHtml</code>,
@@ -1034,10 +1082,19 @@ sub WeatherCheckOptions($@) {
   <a name="Weatherset"></a>
   <b>Set </b>
   <ul>
-    <code>set &lt;name&gt; update</code><br><br>
+    <li>
+      <code>set &lt;name&gt; update</code><br><br>
 
-    Forces the retrieval of the weather data. The next automatic retrieval is scheduled to occur
-    <code>interval</code> seconds later.<br><br>
+      Forces the retrieval of the weather data. The next automatic retrieval is scheduled to occur
+      <code>interval</code> seconds later.
+    </li>
+    <li>
+      <code>set &lt;name&gt; newLocation latitude,longitude</code><br><br>
+      
+      set a new temporary location.
+      the value pair Latitude Longitude is separated by a comma.
+      if no value is entered (empty value), the location detected by definition is automatically taken.<br><br>
+    </li>
   </ul>
   <br>
 
@@ -1111,6 +1168,7 @@ sub WeatherCheckOptions($@) {
     <ul>
       <li>DarkSky (<a href="https://darksky.net">Webseite</a>, Standard)</li>
       <li>OpenWeatherMap (<a href="https://openweathermap.org/">Webseite)</a></li>
+      <li>Wunderground (<a href="https://www.wunderground.com/member/api-keys">Webseite)</a></li>
     </ul>
     <br>
     Eine solche virtuelle Wetterstation sammelt periodisch aktuelle Wetterdaten
@@ -1125,7 +1183,7 @@ sub WeatherCheckOptions($@) {
 
     Die Parameter haben die folgende Bedeutung:<br>
 
-    <table border="1">
+    <table>
     <tr><td><code>API</code></td><td>Name des Wetter-APIs, z.B. <code>DarkSkyAPI</code></td></tr>
     <tr><td><code>apioptions</code></td><td>Individuelle Optionen f&uuml;r das gew&auml;hlte API</td></tr>
     <tr><td><code>apikey</code></td><td>Schl&uuml;ssel f&uuml;r das gew&auml;hlte API</td></tr>
@@ -1135,7 +1193,7 @@ sub WeatherCheckOptions($@) {
       Aktualisierungen der Wetterdaten</td></tr>
     <tr><td><code>lang</code></td><td>Sprache der Wettervorhersage: <code>de</code>,
       <code>en</code>, <code>pl</code>, <code>fr</code>, <code>it</code> oder <code>nl</code></td></tr>
-    <table/>
+    </table>
     <p>
 
     Eine ganz einfache Definition ist:<br><br>
@@ -1149,13 +1207,14 @@ sub WeatherCheckOptions($@) {
     <pre>
       define Forecast Weather apikey=987498ghjgf864
       define MyWeather Weather API=OpenWeatherMapAPI,cachemaxage:600 apikey=09878945fdskv876 location=52.4545,13.4545 interval=3600 lang=de
+      define <name> Weather API=wundergroundAPI,stationId:IHAUIDELB111 apikey=ed64ccc80f004556a4e3456567800b6324a
     </pre>
 
     Es folgt die API-spezifische Dokumentation.<p>
 
     <b>Dark Sky</b><p>
 
-    <table border="1">
+    <table>
     <tr><td>API</td><td><code>DarkSkyAPI</code></td></tr>
     <tr><td>apioptions</td><td><code>cachemaxage=&lt;cachemaxage&gt;</code><br>Zeitdauer in
       Sekunden, innerhalb derer die Wettervorhersage nicht neu abgerufen
@@ -1165,12 +1224,12 @@ sub WeatherCheckOptions($@) {
       und L&auml;nge des Ortes in Grad, f&uuml;r den das Wetter vorhergesagt wird.
       Bei fehlender Angabe werden die Werte aus den gleichnamigen Attributen
       des <code>global</code>-Device genommen, sofern vorhanden.</td></tr>
-    <table/>
+    </table>
     <p><p>
 
     <b>OpenWeatherMap</b><p>
 
-    <table border="1">
+    <table>
     <tr><td>API</td><td><code>OpenWeatherMapAPI</code></td></tr>
     <tr><td>apioptions</td><td><code>cachemaxage=&lt;cachemaxage&gt;</code> Zeitdauer in
       Sekunden, innerhalb derer die Wettervorhersage nicht neu abgerufen
@@ -1179,7 +1238,22 @@ sub WeatherCheckOptions($@) {
       und L&auml;nge des Ortes in Grad, f&uuml;r den das Wetter vorhergesagt wird.
       Bei fehlender Angabe werden die Werte aus den gleichnamigen Attributen
       des <code>global</code>-Device genommen, sofern vorhanden.</td></tr>
-    <table/>
+    </table>
+    <p><p>
+    
+    <b>Wunderground</b><p>
+
+    <table>
+    <tr><td>API</td><td><code>wundergroundAPI</code></td></tr>
+    <tr><td>apioptions</td><td><code>cachemaxage=&lt;cachemaxage&gt;</code> Zeitdauer in
+      Sekunden, innerhalb derer die Wettervorhersage nicht neu abgerufen
+      sondern aus dem Cache zur&uuml;ck geliefert wird.<br><code>stationId:ID-Num</code>
+      <br>die ID der Station von welcher die Daten gelesen werden sollen.</td></tr>
+    <tr><td>location</td><td><code>&lt;latitude,longitude&gt;</code> Geographische Breite
+      und L&auml;nge des Ortes in Grad, f&uuml;r den das Wetter vorhergesagt wird.
+      Bei fehlender Angabe werden die Werte aus den gleichnamigen Attributen
+      des <code>global</code>-Device genommen, sofern vorhanden.</td></tr>
+    </table>
     <p><p>
 
     Das Modul unterst&uuml;tzt zus&auml;tzlich vier verschiedene Funktionen
@@ -1207,11 +1281,20 @@ sub WeatherCheckOptions($@) {
   <a name="Weatherset"></a>
   <b>Set </b>
   <ul>
-    <code>set &lt;name&gt; update</code><br><br>
+    <li>
+      <code>set &lt;name&gt; update</code><br><br>
 
-    Erzwingt eine Abfrage der Wetterdaten. Die darauffolgende Abfrage
-    wird gem&auml;&szlig; dem eingestellten
-    Intervall <code>interval</code> Sekunden sp&auml;ter durchgef&uuml;hrt.<br><br>
+      Erzwingt eine Abfrage der Wetterdaten. Die darauffolgende Abfrage
+      wird gem&auml;&szlig; dem eingestellten
+      Intervall <code>interval</code> Sekunden sp&auml;ter durchgef&uuml;hrt.
+    </li>
+    <li>
+      <code>set &lt;name&gt; newLocation latitude,longitude</code><br><br>
+      
+      Gibt die M&ouml;glichkeit eine neue tempor&auml;re Location zu setzen.
+      Das Wertepaar Latitude Longitude wird durch ein Komma getrennt &uuml;bergeben.
+      Wird kein Wert mitgegebn (leere &Uuml;bergabe) wird automatisch die per Definition erkannte Location genommen<br><br>
+    </li>
   </ul>
   <br>
 
@@ -1269,4 +1352,51 @@ sub WeatherCheckOptions($@) {
 </ul>
 
 =end html_DE
+
+=for :application/json;q=META.json 59_Weather.pm
+{
+  "abstract": "Modul to provides current weather condition and forecast",
+  "x_lang": {
+    "de": {
+      "abstract": ""
+    }
+  },
+  "keywords": [
+    "fhem-mod-device",
+    "fhem-core",
+    "Weather",
+    "DarkSky",
+    "OpenWeatherMap",
+    "Underground"
+  ],
+  "release_status": "stable",
+  "license": "GPL_2",
+  "version": "v2.1.3",
+  "author": [
+    "Marko Oldenburg <leongaultier@gmail.com>"
+  ],
+  "x_fhem_maintainer": [
+    "CoolTux"
+  ],
+  "x_fhem_maintainer_github": [
+    "LeonGaultier"
+  ],
+  "prereqs": {
+    "runtime": {
+      "requires": {
+        "FHEM": 5.00918799,
+        "perl": 5.016, 
+        "Meta": 0,
+        "JSON": 0,
+        "Date::Parse": 0
+      },
+      "recommends": {
+      },
+      "suggests": {
+      }
+    }
+  }
+}
+=end :application/json;q=META.json
+
 =cut

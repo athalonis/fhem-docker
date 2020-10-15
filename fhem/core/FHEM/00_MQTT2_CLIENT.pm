@@ -1,5 +1,5 @@
 ##############################################
-# $Id: 00_MQTT2_CLIENT.pm 19784 2019-07-05 09:37:34Z rudolfkoenig $
+# $Id: 00_MQTT2_CLIENT.pm 21339 2020-03-02 19:10:38Z rudolfkoenig $
 package main;
 
 use strict;
@@ -50,10 +50,11 @@ MQTT2_CLIENT_Initialize($)
     rawEvents
     subscriptions
     SSL
+    sslargs
     username
   );
   use warnings 'qw';
-  $hash->{AttrList} = join(" ", @attrList);
+  $hash->{AttrList} = join(" ", @attrList)." ".$readingFnAttributes;
 }
 
 #####################################
@@ -68,9 +69,7 @@ MQTT2_CLIENT_Define($$)
   MQTT2_CLIENT_Undef($hash, undef) if($hash->{OLDDEF}); # modify
 
   $hash->{DeviceName} = $host;
-  $hash->{clientId} = $hash->{NAME};
-  $hash->{clientId} =~ s/[^0-9a-zA-Z]//g;
-  $hash->{clientId} = "MQTT2_CLIENT" if(!$hash->{clientId});
+  $hash->{clientId} = AttrVal($hash->{NAME}, "clientId", $hash->{NAME});
   $hash->{connecting} = 1;
 
   InternalTimer(1, "MQTT2_CLIENT_connect", $hash, 0); # need attributes
@@ -141,7 +140,7 @@ MQTT2_CLIENT_doinit($)
         join("", map { pack("n", length($_)).$_.pack("C",0) } # QOS:0
                  split(" ", $s));
     MQTT2_CLIENT_send($hash,
-      pack("C",0x80).
+      pack("C",0x82).
       MQTT2_CLIENT_calcRemainingLength(length($msg)).$msg, 0, 1);
     $hash->{connecting} = 3;
 
@@ -154,11 +153,17 @@ MQTT2_CLIENT_keepalive($)
 {
   my ($hash) = @_;
   my $name = $hash->{NAME};
+  if($hash->{waitingForPingRespSince}) {
+    Log3 $name, 2, "$hash->{NAME}: No PINGRESP for last PINGREQ (".
+            "at $hash->{waitingForPingRespSince}), disconnecting";
+    delete $hash->{waitingForPingRespSince};
+    return  MQTT2_CLIENT_Disco($hash);
+  }
   my $keepalive = AttrVal($name, "keepaliveTimeout", 30);
   $keepalive = 30 if($keepalive !~ m/^[0-9]+$/);
   return if(ReadingsVal($name, "state", "") ne "opened" || $hash->{connecting});
-  Log3 $name, 5, "$name: keepalive $keepalive";
   MQTT2_CLIENT_send($hash, pack("C",0xC0).pack("C",0)); # PINGREQ
+  $hash->{waitingForPingRespSince} = TimeNow();
   InternalTimer(gettimeofday()+$keepalive, "MQTT2_CLIENT_keepalive", $hash, 0);
 }
 
@@ -204,8 +209,14 @@ MQTT2_CLIENT_Attr(@)
 
   if($attrName eq "clientId") {
     $hash->{clientId} = $param[0];
-    $hash->{clientId} =~ s/[^0-9a-zA-Z]//g;
-    $hash->{clientId} = "MQTT2_CLIENT" if(!$hash->{clientId});
+  }
+
+  if($attrName eq "sslargs") {
+    $hash->{sslargs} = {};
+    for my $kv (split(" ",$param[0])) {
+      my ($k, $v) = split(":", $kv, 2);
+      $hash->{sslargs}{$k} = $v;
+    }
   }
 
   my %h = (clientId=>1,lwt=>1,lwtRetain=>1,subscriptions=>1,SSL=>1,username=>1);
@@ -237,6 +248,7 @@ MQTT2_CLIENT_Set($@)
     return "Usage: set $name publish -r topic [value]" if(@a < 1);
     my $tp = shift(@a);
     my $val = join(" ", @a);
+    readingsSingleUpdate($hash, "lastPublish", "$tp:$val", 1);
     MQTT2_CLIENT_doPublish($hash, $tp, $val, $retain);
 
   } elsif($a[0] eq "password") {
@@ -279,7 +291,10 @@ MQTT2_CLIENT_Read($@)
 
   if(!$reread) {
     my $buf = DevIo_SimpleRead($hash);
-    return "" if(!defined($buf));
+    if(!defined($buf)) {
+      MQTT2_CLIENT_Disco($hash);
+      return "";
+    }
     $hash->{BUF} .= $buf;
   }
 
@@ -330,7 +345,9 @@ MQTT2_CLIENT_Read($@)
         if($onc && $onc =~ m/^(-r\s)?([^\s]*)\s*(.*)$/);
     }
 
-  } elsif($cpt eq "PINGRESP") { # ignore it
+  } elsif($cpt eq "PINGRESP") {
+    delete($hash->{waitingForPingRespSince});
+    
   } elsif($cpt eq "PUBLISH")  {
     my $cf = ord(substr($fb,0,1)) & 0xf;
     my $qos = ($cf & 0x06) >> 1;
@@ -348,7 +365,7 @@ MQTT2_CLIENT_Read($@)
       my $ac = AttrVal($name, "autocreate", "no");
       $ac = $ac eq "1" ? "simple" : ($ac eq "0" ? "no" : $ac); # backward comp.
 
-      my $cid = $hash->{clientId};
+      my $cid = makeDeviceName($hash->{clientId});
       $tp =~ s/:/_/g; # 96608
       Dispatch($hash, "autocreate=$ac\0$cid\0$tp\0$val", undef, $ac eq "no");
 
@@ -472,7 +489,6 @@ MQTT2_CLIENT_getStr($$)
 1;
 
 =pod
-=item helper
 =item summary    Connection to an external MQTT server
 =item summary_DE Verbindung zu einem externen MQTT Server
 =begin html
@@ -598,6 +614,12 @@ MQTT2_CLIENT_getStr($$)
     <a name="SSL"></a>
     <li>SSL<br>
       Enable SSL (i.e. TLS)
+      </li><br>
+
+    <a name="sslargs"></a>
+    <li>sslargs<br>
+      a list of space separated tuples of key:value, where key is one of the
+      possible options documented in perldoc IO::Socket::SSL
       </li><br>
 
     <a name="username"></a>

@@ -8,6 +8,11 @@
 /fhem/core/log/*
 /fhem/core/restoreDir/*
 /fhem/core/.ssh/*
+/fhem/core/fhem.cfg
 /mysql/data/*
 /mqtt/log/*
 /mqtt/data/*
+mqtt/config/userdb
+mysql/config/custom.cnf
+mysql/config/databases/
+mysql/config/log/

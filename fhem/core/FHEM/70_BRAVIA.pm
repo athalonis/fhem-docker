@@ -1,4 +1,4 @@
-# $Id: 70_BRAVIA.pm 19191 2019-04-15 17:40:25Z vuffiraa $
+# $Id: 70_BRAVIA.pm 21376 2020-03-08 09:22:57Z vuffiraa $
 ##############################################################################
 #
 #     70_BRAVIA.pm
@@ -24,11 +24,17 @@
 #     along with fhem.  If not, see <http://www.gnu.org/licenses/>.
 #
 ##############################################################################
+#
+#     05.03.2020 Sandro Gertz: add "requestReboot"
+#
+##############################################################################
 
 package main;
 
 use strict;
 use warnings;
+
+use vars qw( $readingFnAttributes );
 
 ###################################
 sub BRAVIA_Initialize($) {
@@ -41,7 +47,7 @@ sub BRAVIA_Initialize($) {
     $hash->{DefFn}   = "BRAVIA::Define";
     $hash->{UndefFn} = "BRAVIA::Undefine";
 
-    $hash->{AttrList} = "disable:0,1 macaddr:textField channelsMax:textField " . $::readingFnAttributes;
+    $hash->{AttrList} = "disable:0,1 macaddr:textField channelsMax:textField wolBroadcast:textField " . $readingFnAttributes;
 
     $::data{RC_layout}{BRAVIA_SVG} = "BRAVIA::RClayout_SVG";
     $::data{RC_layout}{BRAVIA}     = "BRAVIA::RClayout";
@@ -202,7 +208,6 @@ sub Get($@) {
     return "argument is missing" if ( int(@a) < 2 );
 
     $what = $a[1];
-
     if ( $what =~ /^(power|presence|input|channel|volume|mute)$/ ) {
         my $value = ReadingsVal($name, $what, "");
         if ($value ne "") {
@@ -304,6 +309,7 @@ sub Set($@) {
     $usage .= " channel:$channels" if ( $channels ne "" );
     $usage .= " openUrl application:" . $apps if ( $apps ne "" );
     $usage .= " text" if (ReadingsVal($name, "requestFormat", "") eq "json");
+    $usage .= " requestReboot:noArg " if (ReadingsVal($name, "requestFormat", "") eq "json");
 
     my $cmd = '';
     my $result;
@@ -453,16 +459,21 @@ sub Set($@) {
     elsif ( lc( $a[1] ) eq "remotecontrol" ) {
         Log3($name, 2, "BRAVIA set $name " . $a[1] . " " . $a[2]);
 
-        if ( $presence eq "present" ) {
-            if ( !defined( $a[2] ) ) {
-                my $commandKeys = "";
-                for (sort keys %{GetRemotecontrolCommand("GetRemotecontrolCommands")}) {
-                    $commandKeys = $commandKeys . " " . $_;
-                }
-                return "No argument given, choose one of" . $commandKeys;
+        if ( !defined( $a[2] ) ) {
+            my $commandKeys = "";
+            for (sort keys %{GetRemotecontrolCommand("GetRemotecontrolCommands")}) {
+                $commandKeys = $commandKeys . " " . $_;
             }
+            return "No argument given, choose one of" . $commandKeys;
+        }
+        $cmd = uc( $a[2] );
 
-            $cmd = uc( $a[2] );
+        if ( $cmd eq "WOL" ) {
+          my $macAddr = AttrVal( $name, "macaddr", "" );
+          $macAddr = ReadingsVal( $name, "macAddr", "") if ($macAddr eq "");
+          wake( $name, $macAddr ) if ( $macAddr ne "" && $macAddr ne "-" );
+        }
+        elsif ( $presence eq "present" ) {
 
             if ( $cmd eq "MUTE" ) {
                 Set( $hash, $name, "mute" );
@@ -473,11 +484,6 @@ sub Set($@) {
             elsif ( $cmd eq "CHANDOWN" ) {
                 Set( $hash, $name, "channelDown" );
             }
-            elsif ( $cmd eq "WOL" ) {
-              my $macAddr = AttrVal( $name, "macaddr", "" );
-	            $macAddr = ReadingsVal( $name, "macAddr", "") if ($macAddr eq "");
-	            wake( $name, $macAddr ) if ( $macAddr ne "" && $macAddr ne "-" );
-	          }
             elsif ( $cmd ne "" ) {
                 SendCommand( $hash, "ircc", $cmd );
             }
@@ -597,15 +603,15 @@ sub Set($@) {
 
         return "No 2nd argument given" if ( !defined( $a[2] ) );
 
-		    shift(@a); shift(@a);
-		    my $appStr;
+            shift(@a); shift(@a);
+            my $appStr;
 
         # Resolve app uri + data
         my $app_name;
         my $app_uri;
-		    my $app_data;
-		    while (@a) {
-		        my $arg = shift(@a);
+            my $app_data;
+            while (@a) {
+                my $arg = shift(@a);
             if (defined($appStr)) {
                 $appStr .= "#";
                 $appStr .= $arg;
@@ -617,7 +623,7 @@ sub Set($@) {
                 $app_uri  = $hash->{helper}{device}{appPreset}{ $appStr }{uri};
                 $app_data = join(" ", @a);
             }
-		    }
+            }
 
         return "Unknown app '" . $appStr . "' on that device." unless defined($app_uri);
 
@@ -743,13 +749,19 @@ sub Set($@) {
         readingsSingleUpdate( $hash, "upnp", $a[2], 1 )
            if ( ReadingsVal($name, "upnp", "") ne $a[2] );
     }
-    
+        
+      # reboot
+    elsif ($a[1] eq "requestReboot") {  
+        Log3($name, 2, "BRAVIA set $name " . $a[1]);     
+        SendCommand( $hash, "requestReboot" );
+      }
+        
     # text
     elsif ( $a[1] eq "text" ) {
         return "No 2nd argument given" if ( !defined( $a[2] ) );
 
-		shift(@a); shift(@a);
-		my $text = join(" ", @a);
+        shift(@a); shift(@a);
+        my $text = join(" ", @a);
         Log3($name, 2, "BRAVIA set $name text $text");
         
         SendCommand( $hash, "text", $text );
@@ -1133,6 +1145,9 @@ sub ReceiveCommand($$$) {
         }
 
         $newstate = ProcessCommandData( $param, $return, \@successor );
+    } else {
+      # Android 8: timeshift mode or app mode
+      $newstate = "on" if ($service eq "getScheduleList");
     }
 
     if ( defined( $newstate ) ) {
@@ -1194,7 +1209,7 @@ sub ReceiveCommand($$$) {
 ###################################
 sub wake ($$) {
     my ( $name, $mac_addr ) = @_;
-    my $address = '255.255.255.255';
+    my $address = AttrVal($name, 'wolBroadcast', '255.255.255.255');
     my $port = 9;
 
     my $sock = new IO::Socket::INET( Proto => 'udp' )
@@ -1210,7 +1225,7 @@ sub wake ($$) {
     setsockopt( $sock, SOL_SOCKET, SO_BROADCAST, 1 )
       or die "setsockopt : $!";
 
-    Log3($name, 4, "BRAVIA $name: Waking up by sending Wake-On-Lan magic package to $mac_addr");
+    Log3($name, 4, "BRAVIA $name: Waking up by sending Wake-On-Lan magic packet to $mac_addr");
     send( $sock, $packet, 0, $sock_addr ) or die "send : $!";
     close($sock);
 
@@ -2051,7 +2066,7 @@ sub GetRemotecontrolCommand($) {
         return $commands;
     }
     else {
-    		# return command itself if not mapped
+            # return command itself if not mapped
         return $command;
     }
 }
@@ -2251,6 +2266,9 @@ sub GetNormalizedName($) {
       <li><a name="requestFormat"></a><i>requestFormat</i><br>
         "xml" for xml based communication (models from 2011 and 2012)<br>
         "json" for communication with models from 2013 and newer</li>
+      <li><a name="requestReboot"></a><i>requestReboot</i><br>
+        Reboots the TV immediately.
+        This Feature is available on models from 2013 and newer.</li>
       <li><a name="remoteControl"></a><i>remoteControl</i><br>
         Sends command directly to TV.</li>
       <li><a name="statusRequest"></a><i>statusRequest</i><br>
@@ -2258,7 +2276,7 @@ sub GetNormalizedName($) {
       <li><a name="stop"></a><i>stop</i><br>
         Stops recording, playing of an internal App, etc.</li>
       <li><a name="text"></a><i>text</i><br>
-      	Includes the given text into an input field on display.</li>
+        Includes the given text into an input field on display.</li>
       <li><a name="toggle"></a><i>toggle</i><br>
         Toggles power status of TV.</li>
       <li><a name="tvpause"></a><i>tvpause</i><br>
@@ -2285,7 +2303,9 @@ sub GetNormalizedName($) {
       <li><a name="channelsMax"></a><i>channelsMax</i><br>
         Maximum amount of channels to be displayed, default is 50.</li>
       <li><a name="macaddr"></a><i>macaddr</i><br>
-        Enables power on of TV using WOL.</li>
+        Enables power on of TV using Wake-On-Lan.</li>
+      <li><a name="wolBroadcast"></a><i>wolBroadcast</i><br>
+        Broadcast address for Wake-On-Lan magic packets, default is 255.255.255.255.</li>
     </ul>
   </ul>
 </ul>
@@ -2330,7 +2350,7 @@ sub GetNormalizedName($) {
     <ul>
       <li><a name="application"></a><i>application</i><br>
         Liste der Anwendungen.
-        Anwenungen sind ab Modelljahr 2013 verfügbar.</li>
+        Anwendungen sind ab Modelljahr 2013 verfügbar.</li>
       <li><a name="channel"></a><i>channel</i><br>
         Liste aller bekannten Kanäle. Das Modul merkt sich alle aufgerufenen Kanäle.
         Ab Modelljahr 2013 werden die Kanäle automatisch geladen
@@ -2368,6 +2388,9 @@ sub GetNormalizedName($) {
       <li><a name="requestFormat"></a><i>requestFormat</i><br>
         "xml" für xml-basierte Kommunikation 2011er/2012er Geräte<br>
         "json" für die Kommunikation seit der 2013er Generation</li>
+      <li><a name="requestReboot"></a><i>requestReboot</i><br>
+        Startet den TV direkt neu.
+        Diese Funktion ist ab Modelljahr 2013 verfügbar.</li>
       <li><a name="remoteControl"></a><i>remoteControl</i><br>
         Direktes Senden von Kommandos an den TV.</li>
       <li><a name="statusRequest"></a><i>statusRequest</i><br>
@@ -2402,7 +2425,9 @@ sub GetNormalizedName($) {
       <li><a name="channelsMax"></a><i>channelsMax</i><br>
         Maximale Anzahl der im FHEMWEB angezeigten Kanäle. Der Standartwert ist 50.</li>
       <li><a name="macaddr"></a><i>macaddr</i><br>
-        Ermöglicht das Einschalten des TV per WOL.</li>
+        Ermöglicht das Einschalten des TV per Wake-On-Lan.</li>
+      <li><a name="wolBroadcast"></a><i>wolBroadcast</i><br>
+        Broadcast-Adresse für die Wake-On-Lan <i>Magic Packets</i>. Der Standartwert ist 255.255.255.255.</li>
     </ul>
   </ul>
 </ul>
